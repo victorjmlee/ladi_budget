@@ -1,0 +1,1108 @@
+<!DOCTYPE html>
+<!-- LADI 예산서 · made by Victor Lee -->
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LADI 예산서</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --card: #1a2332;
+      --border: #2d3a4d;
+      --text: #e6edf3;
+      --muted: #8b949e;
+      --accent: #58a6ff;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 1rem;
+    }
+    h1 {
+      font-size: 1.25rem;
+      font-weight: 600;
+      margin: 0 0 1rem 0;
+      color: var(--text);
+    }
+    .upload-bar {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin-bottom: 1rem;
+      flex-wrap: wrap;
+    }
+    .upload-bar label {
+      padding: 0.5rem 1rem;
+      background: var(--accent);
+      color: #fff;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 0.875rem;
+      font-weight: 500;
+    }
+    .upload-bar label:hover { opacity: 0.9; }
+    .upload-bar input[type="file"] { display: none; }
+    .file-name { font-size: 0.875rem; color: var(--muted); }
+    .main {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+      height: 88vh;
+      min-height: 500px;
+    }
+    @media (max-width: 900px) {
+      .main { grid-template-columns: 1fr; height: 85vh; }
+    }
+    .panel {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+    .panel h2 {
+      margin: 0;
+      padding: 0.75rem 1rem;
+      font-size: 0.9rem;
+      font-weight: 600;
+      border-bottom: 1px solid var(--border);
+      color: var(--muted);
+    }
+    .pdf-viewer-wrap {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      background: #525659;
+    }
+    .pdf-canvas-container {
+      flex: 1;
+      min-height: 0;
+      overflow: auto;
+      width: 100%;
+      padding: 8px;
+    }
+    .pdf-page-wrap {
+      position: relative;
+      margin: 0 auto 1rem;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    }
+    .pdf-page-wrap canvas {
+      display: block;
+      vertical-align: top;
+    }
+    .pdf-page-wrap .highlight-layer {
+      position: absolute;
+      left: 0;
+      top: 0;
+      pointer-events: none;
+    }
+    .pdf-viewer-placeholder {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+    .panel-content {
+      flex: 1;
+      overflow: auto;
+      padding: 1rem;
+      font-size: 0.8125rem;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+    .panel-content.empty {
+      color: var(--muted);
+      font-style: italic;
+    }
+    .right-top {
+      padding: 1rem;
+      border-bottom: 1px solid var(--border);
+    }
+    .right-top label {
+      display: block;
+      font-size: 0.75rem;
+      color: var(--muted);
+      margin-bottom: 0.25rem;
+    }
+    .right-top textarea {
+      width: 100%;
+      min-height: 140px;
+      padding: 0.5rem;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 0.875rem;
+      resize: vertical;
+    }
+    .right-top textarea::placeholder { color: var(--muted); }
+    .download-wrap {
+      padding: 0.75rem 1rem;
+      border-top: 1px solid var(--border);
+    }
+    .download-wrap button {
+      width: 100%;
+      padding: 0.5rem 1rem;
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-size: 0.875rem;
+      font-weight: 500;
+      cursor: pointer;
+    }
+    .download-wrap button:hover { opacity: 0.9; }
+    .download-wrap button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+  </style>
+</head>
+<body data-creator="Victor Lee">
+  <!-- LADI 예산서 · made by Victor Lee -->
+  <h1>LADI 예산서</h1>
+  <div class="upload-bar">
+    <label for="pdf-input">PDF 업로드</label>
+    <input type="file" id="pdf-input" accept=".pdf" />
+    <span class="file-name" id="file-name">파일을 선택하세요</span>
+  </div>
+
+  <div class="main">
+    <div class="panel">
+      <h2>PDF 보기</h2>
+      <div class="pdf-viewer-wrap">
+        <div class="pdf-viewer-placeholder" id="pdf-placeholder">PDF를 업로드하면 여기에 문서가 표시됩니다.</div>
+        <div id="pdf-canvas-container" class="pdf-canvas-container" style="display:none;"></div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="right-top">
+        <label for="keywords">예산 코드 (쉼표 또는 줄바꿈으로 구분)</label>
+        <textarea id="keywords" placeholder="예: 201, 207, 401"></textarea>
+      </div>
+      <h2>추출 결과</h2>
+      <div class="panel-content empty" id="result">예산 코드를 입력하고 PDF를 업로드하면 여기에 추출된 내용이 표시됩니다.</div>
+      <div class="download-wrap">
+        <button type="button" id="excel-btn" disabled>엑셀 다운로드 (.xlsx)</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+    const pdfInput = document.getElementById('pdf-input');
+    const fileNameEl = document.getElementById('file-name');
+    const pdfPlaceholder = document.getElementById('pdf-placeholder');
+    const pdfCanvasContainer = document.getElementById('pdf-canvas-container');
+    const keywordsEl = document.getElementById('keywords');
+    const resultEl = document.getElementById('result');
+    const excelBtn = document.getElementById('excel-btn');
+
+    let currentPdfDoc = null;
+
+    let currentFullText = '';
+    let currentFormatted = '';
+    let currentPdfUrl = null;
+    let currentPdfFile = null;
+    let currentPdfFileName = '';
+    let currentPdfMeta = { 부서: '', 정책: '', 단위: '' };
+    let currentPageTexts = [];
+    let currentExportKeywords = [];
+    let currentExportByKeyword = {};
+    let currentExportLines = [];
+    let currentExportPageIndex = [];
+
+    function parseKeywords(raw) {
+      return raw
+        .split(/[\n,]+/)
+        .map(s => s.trim())
+        .filter(Boolean);
+    }
+
+    /** PDF.js 항목을 읽기 순서(y→x)로 정렬 후 한 줄로 합치기. 공백/줄바꿈 보정으로 검색 품질 개선 */
+    function getTextInReadingOrder(content) {
+      const items = content.items.map(it => {
+        const t = it.transform;
+        const x = t[4];
+        const y = t[5];
+        return { str: it.str, x, y };
+      });
+      items.sort((a, b) => {
+        const lineA = Math.round(a.y / 5) * 5;
+        const lineB = Math.round(b.y / 5) * 5;
+        if (lineB !== lineA) return lineB - lineA;
+        return a.x - b.x;
+      });
+      const lines = [];
+      let lastY = null;
+      let line = [];
+      const Y_GAP = 3;
+      const X_GAP = 4;
+      for (const it of items) {
+        const y = Math.round(it.y / Y_GAP) * Y_GAP;
+        if (lastY !== null && Math.abs(y - lastY) > Y_GAP) {
+          lines.push(line.join(' '));
+          line = [];
+        }
+        lastY = y;
+        line.push(it.str);
+      }
+      if (line.length) lines.push(line.join(' '));
+      return lines.join('\n');
+    }
+
+    /** 한글 구간만 공백 제거 */
+    function collapseSpacesInKorean(text) {
+      if (!text) return text;
+      return String(text).replace(/([가-힣](?:\s+[가-힣])*)/g, (m) => m.replace(/\s+/g, ''));
+    }
+
+    /** 최초 추출 정규화: 한글은 공백 제거, 숫자 구간은 스페이스 1개만 제거(2개 이상은 항목 구분으로 유지) */
+    const NORMALIZE_PLACEHOLDER = '\u200B\u200B';
+    function normalizeExtractedText(text) {
+      if (!text) return text;
+      let s = collapseSpacesInKorean(text);
+      s = s.replace(/  +/g, NORMALIZE_PLACEHOLDER);
+      s = s.replace(/ /g, '');
+      s = s.split(NORMALIZE_PLACEHOLDER).join('  ');
+      return s.replace(/,\s+/g, ',');
+    }
+
+    /** 엑셀 1행: 부서·정책·단위·세부사업·예산액·전년도예산액·비교증감 (편성목은 D열에 행으로만) */
+    const EXCEL_HEADER = ['부서', '정책', '단위', '세부사업', '예산액', '전년도예산액', '비교증감'];
+
+    /**
+     * 페이지 텍스트 앞부분에서 부서/정책/단위 추출.
+     * 추출 예: "부서:  기획예산실정책:  재정운영단위:  건전재정운영  (단위:천원)" → 각 페이지마다 값이 바뀔 수 있음.
+     */
+    function extractPdfMeta(fullText) {
+      const meta = { 부서: '', 정책: '', 단위: '' };
+      const norm = (s) => (s || '').replace(/\s+/g, ' ').trim();
+      const t = String(fullText || '');
+      const m1 = t.match(/부서\s*[:：]\s*(.+?)정책\s*[:：]/);
+      const m2 = t.match(/정책\s*[:：]\s*(.+?)단위\s*[:：]/);
+      const m3 = t.match(/단위\s*[:：]\s*([^\n]*?)(?=\n|$)/);
+      if (m1) meta.부서 = norm(m1[1]);
+      if (m2) meta.정책 = norm(m2[1]);
+      if (m3) meta.단위 = norm(m3[1]);
+      if (!meta.부서 && !meta.정책 && !meta.단위) {
+        const a1 = t.match(/부\s*서\s*[:：]\s*([^\n]+)/);
+        const a2 = t.match(/정\s*책\s*[:：]\s*([^\n]+)/);
+        const a3 = t.match(/단\s*위\s*[:：]\s*([^\n]+)/);
+        if (a1) meta.부서 = norm(a1[1]);
+        if (a2) meta.정책 = norm(a2[1]);
+        if (a3) meta.단위 = norm(a3[1]);
+      }
+      if (!meta.부서 && !meta.정책 && !meta.단위) {
+        const b1 = t.match(/부서\s*[:：]\s*([^\n]+)/);
+        const b2 = t.match(/정책\s*[:：]\s*([^\n]+)/);
+        const b3 = t.match(/단위\s*[:：]\s*([^\n]+)/);
+        if (b1) meta.부서 = norm(b1[1]);
+        if (b2) meta.정책 = norm(b2[1]);
+        if (b3) meta.단위 = norm(b3[1]);
+      }
+      return meta;
+    }
+
+    /** 추출된 메타에 빈 값이 있으면 다른 페이지/문서 메타로 채움 (하드코딩 없음) */
+    function applyDefaultMeta(meta, fallback) {
+      return {
+        부서: (meta && meta.부서) || (fallback && fallback.부서) || '',
+        정책: (meta && meta.정책) || (fallback && fallback.정책) || '',
+        단위: (meta && meta.단위) || (fallback && fallback.단위) || ''
+      };
+    }
+
+    /**
+     * 예시 구조: 7컬럼. 세부사업과 금액을 반드시 분리. 부서/정책/단위는 해당 페이지 상단 값 사용.
+     * PDF 패턴: [세부사업]  [예산액]  [전년도예산액]  [비교증감] — 스페이스 두 개 이상으로 열 구분.
+     * 편성목 행은 세부사업(3자리 코드) 다음에만 넣고, 01/02/▣ 항목은 각각 한 행으로만 출력.
+     */
+    function lineToExcelRows(line, pdfMeta) {
+      const trim = (s) => String(s).trim();
+      const empty7 = () => ['', '', '', '', '', '', ''];
+      const pyeonHeaderRow = () => empty7().fill('편성목', 3, 4);
+      const isAmount = (s) => /^\d{1,3}(?:,\d{3})+$|^△\d{1,3}(?:,\d{3})*$|^△?\d{1,6}$/.test(String(s).trim());
+      const formatSebuLabel = (s) => {
+        const m = String(s).match(/^(\d{2,3})([가-힣].*)$/);
+        return m ? m[1] + ' ' + m[2] : s;
+      };
+      /** 3자리 코드면 세부사업 → 다음에 편성목 헤더 넣음. 2자리/▣ 등이면 편성목 항목만. */
+      const isSebuCode = (col0) => /^\d{3}$/.test(col0) || (/^\d{3}/.test(col0) && /[가-힣]/.test(col0));
+
+      // 패턴: 스페이스 2개 이상으로 열 구분
+      // 5열: [코드, 세부사업명, 예산액, 전년도, 비교증감] | 4열: [코드+명, 예산, 전년도, 비교증감]
+      const cols = line.split(/\s{2,}/).map(c => c.replace(/\s+/g, '').trim()).filter(Boolean);
+
+      // 5열 — 코드와 이름이 별도 컬럼
+      if (cols.length >= 5 && /^\d{2,3}$/.test(cols[0]) && /[가-힣]/.test(cols[1]) && isAmount(cols[2]) && isAmount(cols[3]) && (isAmount(cols[4]) || /^△/.test(cols[4]))) {
+        const rows = [];
+        const row = empty7();
+        row[3] = cols[0].length === 3 ? cols[0] + ' ' + cols[1] : cols[0] + cols[1]; // 207 연구개발비 / 01연구용역비
+        row[4] = cols[2];
+        row[5] = cols[3];
+        row[6] = cols[4];
+        rows.push(row);
+        if (isSebuCode(cols[0])) rows.push(pyeonHeaderRow());
+        return rows;
+      }
+      // 4열 — 코드+이름 한 컬럼
+      if (cols.length >= 4 && isAmount(cols[1]) && isAmount(cols[2]) && (isAmount(cols[3]) || /^△/.test(cols[3]))) {
+        const rows = [];
+        const row = empty7();
+        row[3] = formatSebuLabel(cols[0]);
+        row[4] = cols[1];
+        row[5] = cols[2];
+        row[6] = cols[3];
+        rows.push(row);
+        if (isSebuCode(cols[0])) rows.push(pyeonHeaderRow());
+        return rows;
+      }
+      // ▣■○ㅇ로 시작하는 줄: 금액 열 앞까지 전부 세부사업 라벨로 합침 (문경관광공사 등 빠지지 않게)
+      if (cols.length >= 2 && (cols[0].startsWith('▣') || cols[0].startsWith('■') || cols[0].startsWith('○') || cols[0].startsWith('ㅇ'))) {
+        const last = cols[cols.length - 1];
+        if (isAmount(last)) {
+          const row = empty7();
+          row[3] = cols.slice(0, -1).join(' ').replace(/\s+/g, ' ').trim();
+          row[4] = last;
+          return [row];
+        }
+      }
+      if (cols.length === 2 && isAmount(cols[1])) {
+        const row = empty7();
+        row[3] = formatSebuLabel(cols[0]);
+        row[4] = cols[1];
+        return [row];
+      }
+      if (cols.length === 3 && isAmount(cols[1]) && isAmount(cols[2])) {
+        const rows = [];
+        const row = empty7();
+        row[3] = formatSebuLabel(cols[0]);
+        row[4] = cols[1];
+        row[5] = cols[2];
+        rows.push(row);
+        if (/^\d{3}/.test(cols[0])) rows.push(pyeonHeaderRow());
+        return rows;
+      }
+      // 3열: [코드, 이름, 예산] 편성목 항목
+      if (cols.length === 3 && /^\d{2,3}$/.test(cols[0]) && /[가-힣]/.test(cols[1]) && isAmount(cols[2])) {
+        const row = empty7();
+        row[3] = cols[0] + cols[1];
+        row[4] = cols[2];
+        return [row];
+      }
+
+      const lineNorm = line.replace(/\s+/g, ' ').trim();
+      const rows = [];
+      const numRe = /△?\d{1,3}(?:,\d{3})*/g;
+
+      const budgetNums = (str) => (str.match(numRe) || []).filter(n => n.includes(',') || n.startsWith('△'));
+      const budgetNumsAny = (str) => {
+        const withComma = (str.match(numRe) || []).filter(n => n.includes(',') || n.startsWith('△'));
+        if (withComma.length >= 1) return withComma;
+        return (str.match(/\d{4,6}/g) || []);
+      };
+
+      const allLabelMatches = [];
+      const sebuRe = /(\d{3}[^\d\s,△]*[가-힣\s]*?)(?=\s*\d{1,3}(?:,\d{3})|\s*△|\d{4,}|$)/g;
+      const pyeonRe = /(?:^|\s)(\d{2}[^\d\s,△]*[가-힣\s]*?)(?=\s*\d{1,3}(?:,\d{3})|\s*△|\d{4,}|$)/g;
+      [...lineNorm.matchAll(sebuRe)].forEach(m => allLabelMatches.push({ i: m.index, type: 'sebu', text: trim(m[1]) }));
+      [...lineNorm.matchAll(pyeonRe)].forEach(m => allLabelMatches.push({ i: m.index + (m[0][0] === ' ' ? 1 : 0), type: 'pyeon', text: trim(m[1]) }));
+      [...lineNorm.matchAll(/[■▣]\s*([가-힣]+(?:\s+[가-힣]+)*)/g)].forEach(m => allLabelMatches.push({ i: m.index, type: 'sebu', text: trim(m[1]) }));
+      [...lineNorm.matchAll(/[○]\s*([가-힣]+(?:\s+[가-힣]+)*)/g)].forEach(m => allLabelMatches.push({ i: m.index, type: 'pyeon', text: trim(m[1]) }));
+      allLabelMatches.sort((a, b) => a.i - b.i);
+
+      for (let k = 0; k < allLabelMatches.length; k++) {
+        const cur = allLabelMatches[k];
+        const next = allLabelMatches[k + 1];
+        const slice = lineNorm.slice(cur.i, next ? next.i : lineNorm.length);
+        let nums = budgetNums(slice);
+        if (!nums.length) nums = budgetNumsAny(slice);
+
+        if (cur.type === 'sebu') {
+          const row = empty7();
+          row[3] = cur.text;
+          if (nums.length >= 3) {
+            const withD = nums.find(n => n.startsWith('△'));
+            const without = nums.filter(n => !n.startsWith('△'));
+            row[4] = without[0] || '';
+            row[5] = without[1] || '';
+            row[6] = withD || nums[2] || '';
+          } else if (nums.length === 1) row[4] = nums[0];
+          rows.push(row);
+          if (cur.type === 'sebu') rows.push(pyeonHeaderRow());
+        } else if (cur.type === 'pyeon') {
+          const row = empty7();
+          row[3] = cur.text;
+          if (nums.length >= 1) row[4] = nums[0];
+          rows.push(row);
+        }
+      }
+
+      if (rows.length === 0 && budgetNums(lineNorm).length > 0) {
+        const parts = lineNorm.split(/(\d{1,3}(?:,\d{3})+|△\d{1,3}(?:,\d{3})*)/);
+        const texts = [];
+        const nums = [];
+        parts.forEach((p, i) => {
+          if (/^\d{1,3}(?:,\d{3})*$|^△\d/.test(p)) nums.push(p);
+          else if (p.trim()) texts.push(trim(p));
+        });
+        let ni = 0;
+        for (const labelPart of texts) {
+          if (!/^\d{2,3}/.test(labelPart)) continue;
+          const row = empty7();
+          row[3] = labelPart;
+          if (ni < nums.length) {
+            const withD = nums.slice(ni).find(n => n.startsWith('△'));
+            const without = nums.slice(ni).filter(n => !n.startsWith('△'));
+            if (labelPart.match(/^\d{3}/)) {
+              row[4] = without[0] || '';
+              row[5] = without[1] || '';
+              row[6] = withD || without[2] || '';
+              ni += 3;
+            } else {
+              row[4] = without[0] || nums[ni] || '';
+              ni += 1;
+            }
+          }
+          if (row[3] || row[4] || row[5] || row[6]) {
+            rows.push(row);
+            if (labelPart.match(/^\d{3}/)) rows.push(pyeonHeaderRow());
+          }
+        }
+      }
+
+      if (rows.length === 0) {
+        const onlyBullet = /^[■○▣ㅇ]\s*.+$/.test(lineNorm);
+        const row = empty7();
+        row[3] = onlyBullet ? lineNorm.replace(/\s*△?\d{1,3}(?:,\d{3})*(?:\s*△?\d{1,3}(?:,\d{3})*)*\s*$/, '').trim() : lineNorm;
+        rows.push(row);
+      }
+
+      // D열(세부사업)에 금액이 섞여 있으면 항상 빼서 E,F,G로 옮김 (공백 제거한 뒤 금액 추출)
+      const amountSplitRe = /(\d{1,3}(?:,\d{3})+|△\d{1,3}(?:,\d{3})*)/g;
+      const amountOnlyRe = /^\d{1,3}(?:,\d{3})+$|^△\d{1,3}(?:,\d{3})*$/;
+      for (const row of rows) {
+        if (!row[3] || row[3].startsWith('편성목')) continue;
+        const d = String(row[3]);
+        const dCollapsed = d.replace(/\s+/g, '');
+        const parts = dCollapsed.split(amountSplitRe).filter(Boolean);
+        const numParts = parts.filter(p => amountOnlyRe.test(p));
+        const textParts = parts.filter(p => !amountOnlyRe.test(p));
+        if (numParts.length === 0) continue;
+        const labelOnly = textParts.join(' ').replace(/\s+/g, '').trim();
+        if (labelOnly.length > 0) row[3] = formatSebuLabel(labelOnly);
+        const hasAmount = !!(row[4] || row[5] || row[6]);
+        if (!hasAmount && numParts.length >= 1) {
+          if (numParts.length >= 3) {
+            const withD = numParts.find(n => n.startsWith('△'));
+            const without = numParts.filter(n => !n.startsWith('△'));
+            row[4] = without[0] || '';
+            row[5] = without[1] || '';
+            row[6] = withD || without[2] || '';
+          } else if (numParts.length === 2) {
+            row[4] = numParts[0];
+            row[5] = numParts[1];
+          } else {
+            row[4] = numParts[0];
+          }
+        }
+      }
+      return rows;
+    }
+
+    /** 키워드 매칭: 공백 제거한 문자열도 비교해서 '연 구' → '연구' 매칭 */
+    function lineMatchesKeyword(line, keyword) {
+      if (!keyword) return false;
+      if (line.includes(keyword)) return true;
+      const normLine = line.replace(/\s+/g, '');
+      const normKw = keyword.replace(/\s+/g, '');
+      return normLine.includes(normKw);
+    }
+
+    function extractByKeywords(fullText, keywords) {
+      if (!keywords.length) return [];
+      const normalized = fullText.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+      const lines = normalized.split('\n').map(s => s.trim()).filter(Boolean);
+      const blocks = [];
+      const seen = new Set();
+      for (const line of lines) {
+        const matched = keywords.filter(kw => lineMatchesKeyword(line, kw));
+        if (matched.length === 0) continue;
+        const key = line.slice(0, 120);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        blocks.push({ keywords: matched, text: line });
+      }
+      return blocks;
+    }
+
+    function extractByKeywordsWithPages(pageTexts, keywords) {
+      if (!keywords.length || !pageTexts.length) return [];
+      const blocks = [];
+      const seen = new Set();
+      for (let pageIndex = 0; pageIndex < pageTexts.length; pageIndex++) {
+        const normalized = pageTexts[pageIndex].replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+        const lines = normalized.split('\n').map(s => s.trim()).filter(Boolean);
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i];
+          const matched = keywords.filter(kw => lineMatchesKeyword(line, kw));
+          if (matched.length === 0) continue;
+          const key = line.slice(0, 120);
+          if (seen.has(key)) continue;
+          seen.add(key);
+          blocks.push({ keywords: matched, text: line, pageIndex });
+        }
+      }
+      return blocks;
+    }
+
+    /** 코드(201, 207) 조회: 첫 컬럼이 해당 코드일 때만 포함. 금액란의 207(2,070, 207,000)은 제외 */
+    function firstColumnIsCode(line, code) {
+      const cols = line.split(/\s{2,}/).map((c) => c.replace(/\s+/g, '').trim()).filter(Boolean);
+      if (!cols.length || cols[0].length < 3 || cols[0].slice(0, 3) !== code) return false;
+      const first = cols[0];
+      if (first === code) return true;
+      return /[가-힣]/.test(first.slice(3));
+    }
+    function extractByCodesWithPages(pageTexts, codes) {
+      if (!pageTexts.length || !codes.length) return [];
+      const codesOrdered = codes.map((c) => String(c).trim()).filter(Boolean);
+      const blocks = [];
+      
+      for (const code of codesOrdered) {
+        for (let pageIndex = 0; pageIndex < pageTexts.length; pageIndex++) {
+          const normalized = pageTexts[pageIndex].replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+          const lines = normalized.split('\n').map(s => s.trim()).filter(Boolean);
+          for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+            const line = lines[lineIndex];
+            if (!firstColumnIsCode(line, code)) continue;
+            blocks.push({ keywords: [code], text: line, pageIndex, lineIndex });
+          }
+        }
+      }
+      return blocks;
+    }
+
+    function formatAsQuote(blocks, keywords) {
+      const byKeyword = {};
+      keywords.forEach(kw => { byKeyword[kw] = []; });
+      blocks.forEach(({ keywords: kws, text }) => {
+        kws.forEach(kw => {
+          if (!byKeyword[kw].includes(text)) byKeyword[kw].push(text);
+        });
+      });
+      const lines = [];
+      lines.push('════════════════════════════════════════');
+      lines.push('  예산 코드별 추출 내용');
+      lines.push('════════════════════════════════════════');
+      lines.push('');
+      keywords.forEach(kw => {
+        const items = byKeyword[kw] || [];
+        lines.push(`■ ${kw}`);
+        lines.push('────────────────────────────────────────');
+        if (items.length === 0) lines.push('  (해당 키워드 내용 없음)');
+        else items.forEach((text, i) => { lines.push(`  ${i + 1}. ${text}`); });
+        lines.push('');
+      });
+      lines.push('════════════════════════════════════════');
+      return lines.join('\n');
+    }
+
+    function renderResult() {
+      const keywords = parseKeywords(keywordsEl.value);
+      if (!currentFullText) {
+        resultEl.textContent = 'PDF를 먼저 업로드하세요.';
+        resultEl.classList.add('empty');
+        excelBtn.disabled = true;
+        return;
+      }
+      if (!keywords.length) {
+        resultEl.textContent = '예산 코드(201, 207, 401 등)를 입력하세요 (쉼표 또는 줄바꿈 구분).';
+        resultEl.classList.add('empty');
+        excelBtn.disabled = true;
+        return;
+      }
+      const isCodeMode = keywords.every((k) => /^\d{3}$/.test(k.trim()));
+      const blocks = currentPageTexts.length
+        ? isCodeMode
+          ? extractByCodesWithPages(currentPageTexts, keywords.map((k) => k.trim()))
+          : extractByKeywordsWithPages(currentPageTexts, keywords)
+        : isCodeMode
+          ? extractByCodesWithPages([currentFullText], keywords.map((k) => k.trim())).map((b) => ({ ...b, pageIndex: 0 }))
+          : extractByKeywords(currentFullText, keywords).map((x) => ({ ...x, pageIndex: 0 }));
+      currentFormatted = isCodeMode
+        ? '코드 조회: ' + keywords.join(', ') + '\n\n' + blocks.map((b) => b.text).join('\n\n')
+        : formatAsQuote(blocks, keywords);
+      resultEl.textContent = currentFormatted;
+      resultEl.classList.remove('empty');
+      excelBtn.disabled = false;
+      currentExportKeywords = keywords.slice();
+      currentExportByKeyword = {};
+      keywords.forEach(kw => { currentExportByKeyword[kw] = []; });
+      blocks.forEach(({ keywords: kws, text }) => {
+        kws.forEach(kw => {
+          if (!currentExportByKeyword[kw].includes(text)) currentExportByKeyword[kw].push(text);
+        });
+      });
+      currentExportLines = blocks.map(b => b.text);
+      currentExportPageIndex = blocks.map(b => b.pageIndex);
+      drawPdfHighlights();
+    }
+
+    /** 다음 줄에서 첫 금액만 추출 (공백 제거 후 "1 0 , 4 0 0" → "10,400". 쉼표 있는 금액 우선) */
+    function takeFirstAmountFromLine(nextLine) {
+      if (!nextLine) return null;
+      const collapsed = String(nextLine).replace(/\s+/g, '');
+      const m = collapsed.match(/\d{1,3}(?:,\d{3})+/) || collapsed.match(/\d{1,3}(?:,\d{3})*/);
+      return m ? m[0] : null;
+    }
+    /** 줄에서 예산액으로 쓸 금액 추출. 2칸 이상 공백 뒤 마지막 열 우선 (예: "100,000원*11명*2회  2,200" → 2,200) */
+    function takeLastAmountFromLine(nextLine) {
+      if (!nextLine) return null;
+      const parts = String(nextLine).split(/\s{2,}/).map((p) => p.replace(/\s+/g, '').trim()).filter(Boolean);
+      if (parts.length >= 2) {
+        const last = parts[parts.length - 1];
+        const m = last.match(/^\d{1,3}(?:,\d{3})*$|^△\d{1,3}(?:,\d{3})*$/);
+        if (m) return m[0];
+      }
+      const collapsed = String(nextLine).replace(/\s+/g, '');
+      const all = [...collapsed.matchAll(/\d{1,3}(?:,\d{3})+/g)];
+      return all.length ? all[all.length - 1][0] : null;
+    }
+
+    /** 같은 페이지에서 현재 줄 바로 다음 줄 찾기 (키워드 필터 때문에 export 목록에는 없을 수 있음). ○/ㅇ 통일해서 비교 */
+    function getNextLineInPage(line, pageIndex) {
+      const arr = getNextLinesInPage(line, pageIndex, 1);
+      return arr.length ? arr[0] : null;
+    }
+
+    /** 같은 페이지에서 현재 줄 다음에 오는 줄들 (최대 maxLines개). 01연구용역비 밑에 ▣문경 등 추가용 */
+    function getNextLinesInPage(line, pageIndex, maxLines) {
+      const pageLines = getPageLines(pageIndex);
+      if (!pageLines.length || maxLines < 1) return [];
+      const i = getLineIndexInPage(line, pageIndex);
+      if (i < 0 || i >= pageLines.length - 1) return [];
+      return pageLines.slice(i + 1, i + 1 + maxLines);
+    }
+
+    /** 
+     * 다음 줄부터 수집. 종료 조건:
+     * - 다음 3자리 코드 전까지
+     * - 또는 새 단위명 전까지
+     * - 또는 '-' 항목까지 포함하고 끝
+     */
+    function getNextLinesInPageUntilNextBlock(pageIndex, lineIndexOrLine) {
+      const totalPages = (currentPageTexts && currentPageTexts.length) || 1;
+      const pageLines = getPageLines(pageIndex);
+      const i = typeof lineIndexOrLine === 'number'
+        ? lineIndexOrLine
+        : getLineIndexInPage(lineIndexOrLine, pageIndex);
+      if (i < 0) return [];
+      const out = [];
+      let fromIdx = i + 1;
+      let p = pageIndex;
+      while (p < totalPages) {
+        const lines = p === pageIndex ? pageLines : getPageLines(p);
+        const start = p === pageIndex ? fromIdx : 0;
+        for (let k = start; k < lines.length; k++) {
+          const l = lines[k];
+          if (is3DigitStartLine(l)) return out;
+          if (l.trim().startsWith('[')) return out;
+          if (isNewSectionTitle(l)) return out;
+          // 페이지 헤더 스킵 (페이지 넘어가도 블록 유지)
+          const t = l.trim();
+          if (t && (/^부서\s*[:：]/.test(t) || /^정책\s*[:：]/.test(t) || /^단위\s*[:：]/.test(t) ||
+                    /^\(단위\s*[:：]?\s*천원\)/.test(t) || t.includes('(단위:천원)') ||
+                    (t.includes('부서ㆍ정책ㆍ단위') && t.includes('편성목')) || 
+                    (t.includes('세부사업') && t.includes('편성목') && t.includes('예산액')) ||
+                    (t.includes('예산액') && t.includes('전년도') && t.includes('비교증감')) ||
+                    t === '예산액' || t === '전년도' || t === '비교증감')) {
+            continue;
+          }
+          out.push(l);
+          // "-" 종료 조건 제거 (여러 개의 "-" 항목 허용)
+        }
+        p++;
+        fromIdx = 0;
+      }
+      return out;
+    }
+
+    /** 페이지 라인 배열 (공백 정규화 비교용 norm 포함) */
+    function getPageLines(pageIndex) {
+      const pageText = currentPageTexts[pageIndex];
+      if (!pageText) return [];
+      return pageText.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+    }
+
+    function getLineIndexInPage(line, pageIndex) {
+      const pageLines = getPageLines(pageIndex);
+      const norm = (s) => String(s || '').replace(/\s+/g, '').replace(/^[○ㅇ]/, '○');
+      const key = norm(line);
+      let i = pageLines.findIndex((l) => norm(l) === key || norm(l) === line.replace(/\s+/g, ''));
+      if (i >= 0) return i;
+      if (key.length >= 4) {
+        i = pageLines.findIndex((l) => norm(l).indexOf(key) >= 0 || key.indexOf(norm(l)) >= 0);
+        if (i >= 0) return i;
+      }
+      return -1;
+    }
+
+    /** 이 줄이 세부사업(3자리 코드) 시작인지 */
+    function is3DigitStartLine(line) {
+      const cols = String(line).split(/\s{2,}/).map(c => c.replace(/\s+/g, '').trim()).filter(Boolean);
+      if (cols.length < 1) return false;
+      return /^\d{3}$/.test(cols[0]) || (/^\d{3}/.test(cols[0]) && /[가-힣]/.test(cols[0]));
+    }
+
+    /** 구분선 아래 새 단위/사업명(전통시장 활성화사업 추진, 문화행사 지원 등). 201 블록에 넣지 않고 여기서 끊음 */
+    function isNewSectionTitle(line) {
+      const t = String(line).trim();
+      if (!t || /^\d{2,3}\s/.test(t) || /^[▣■○ㅇ\-]/.test(t)) return false;
+      const tNoSpace = t.replace(/\s+/g, '');
+      if (/^[가-힣]+$/.test(tNoSpace) && tNoSpace.length >= 3) {
+        if (/(관리|지원|추진|운영|사업|조성|육성|활성화|개발|보급|확대)$/.test(tNoSpace)) return true;
+      }
+      const cols = t.split(/\s{2,}/).map(c => c.replace(/\s+/g, '').trim()).filter(Boolean);
+      if (cols.length < 2) return false;
+      const first = cols[0];
+      if (!/[가-힣]/.test(first) || /^\d/.test(first)) return false;
+      const last = cols[cols.length - 1];
+      if (/^\d{1,3}(?:,\d{3})+$|^△\d/.test(last)) return true;
+      return false;
+    }
+
+    /** 페이지에서 lineIndex가 속한 블록의 시작 인덱스 (직전 세자리 코드 줄). 없으면 -1 */
+    function getBlockStart(pageIndex, lineIndex) {
+      const pageLines = getPageLines(pageIndex);
+      if (lineIndex < 0 || lineIndex >= pageLines.length) return -1;
+      for (let i = lineIndex; i >= 0; i--) {
+        if (is3DigitStartLine(pageLines[i])) return i;
+      }
+      return -1;
+    }
+
+    function buildExcelAoa() {
+      const aoa = [EXCEL_HEADER];
+      const pageFirstRow = {};
+      let sheetMetaFilled = false;
+      const norm = (s) => String(s || '').replace(/\s+/g, '').replace(/^[○ㅇ]/, '○');
+      const exportLineSet = new Set(currentExportLines.map((l) => norm(l)));
+      const exportContains = (pageLine) => {
+        const n = norm(pageLine);
+        if (exportLineSet.has(n)) return true;
+        for (const ex of currentExportLines) {
+          if (norm(ex).indexOf(n) >= 0 || n.indexOf(norm(ex)) >= 0) return true;
+        }
+        return false;
+      };
+
+      for (let j = 0; j < currentExportLines.length; j++) {
+        const line = currentExportLines[j];
+        const pageIndex = currentExportPageIndex[j] ?? 0;
+        const pageLines = getPageLines(pageIndex);
+        const lineIndex = getLineIndexInPage(line, pageIndex);
+        const blockStart = getBlockStart(pageIndex, lineIndex);
+        const nextLineInPage = lineIndex >= 0 ? getNextLineInPage(line, pageIndex) : null;
+
+        let pageMeta = currentPageTexts[pageIndex] ? extractPdfMeta(currentPageTexts[pageIndex]) : currentPdfMeta;
+        pageMeta = applyDefaultMeta(pageMeta, currentPdfMeta);
+
+        if (lineIndex >= 0 && blockStart >= 0 && blockStart !== lineIndex) {
+          const blockStartLine = pageLines[blockStart];
+          if (blockStartLine && exportContains(blockStartLine)) continue;
+        }
+
+        const rowList = lineToExcelRows(line, pageMeta);
+        let usedNextExportLine = false;
+        for (const row of rowList) {
+          const nextInPage = nextLineInPage || null;
+          const nextInExport = currentExportLines[j + 1] || null;
+          const nextLine = nextInPage || nextInExport;
+          const bulletStart = row[3] && (row[3].startsWith('○') || row[3].startsWith('ㅇ') || row[3].startsWith('■') || row[3].startsWith('▣'));
+          if (bulletStart && !row[4] && nextLine) {
+            const amount = takeFirstAmountFromLine(nextLine);
+            if (amount) {
+              row[4] = amount;
+              if (nextLine === nextInExport) usedNextExportLine = true;
+            }
+          }
+          if (row[3] && !row[3].startsWith('편성목')) {
+            if (!sheetMetaFilled) {
+              const m = applyDefaultMeta(currentPdfMeta);
+              row[0] = m.부서;
+              row[1] = m.정책;
+              row[2] = m.단위;
+              sheetMetaFilled = true;
+            } else if (!pageFirstRow[pageIndex]) {
+              row[0] = pageMeta.부서;
+              row[1] = pageMeta.정책;
+              row[2] = pageMeta.단위;
+              pageFirstRow[pageIndex] = true;
+            }
+          }
+          aoa.push(row);
+        }
+
+        const isBlockStart = is3DigitStartLine(line) && (blockStart < 0 || lineIndex === blockStart);
+        if (isBlockStart) {
+          const followLines = getNextLinesInPageUntilNextBlock(pageIndex, lineIndex);
+          const usedAsAmountOnly = new Set();
+          let lastBlockRow = null;
+          let lastRowWithNoAmount = null;
+          for (let fi = 0; fi < followLines.length; fi++) {
+            if (usedAsAmountOnly.has(fi)) continue;
+            const followLine = followLines[fi];
+            const t = followLine.trim();
+            const onlyNumber = /^\d{1,3}(?:,\d{3})+$|^\d{3,6}$/.test(t);
+            if (onlyNumber) {
+              if (lastRowWithNoAmount) { lastRowWithNoAmount[4] = t; lastRowWithNoAmount = null; }
+              continue;
+            }
+            const isFormulaAmountLine = !/^[가-힣▣■○ㅇ]/.test(t) && !/^\d{2}\s/.test(t);
+            const amtFromLine = takeLastAmountFromLine(followLine);
+            if (isFormulaAmountLine && amtFromLine && lastRowWithNoAmount) {
+              lastRowWithNoAmount[4] = amtFromLine;
+              lastRowWithNoAmount = null;
+              usedAsAmountOnly.add(fi);
+              continue;
+            }
+            const nextInBlock = followLines[fi + 1] || null;
+            const subList = lineToExcelRows(followLine, pageMeta);
+            for (const sub of subList) {
+              if (sub[3] === '편성목') continue;
+              const bullet = sub[3] && (sub[3].startsWith('○') || sub[3].startsWith('ㅇ') || sub[3].startsWith('■') || sub[3].startsWith('▣'));
+              const nextIsLabelRow = nextInBlock && (/^[가-힣▣■○ㅇ]/.test(nextInBlock.trim()) || /^\d{2}\s/.test(nextInBlock.trim()));
+              if (bullet && !sub[4] && nextInBlock && !nextIsLabelRow) {
+                const amt = takeLastAmountFromLine(nextInBlock);
+                if (amt) { sub[4] = amt; usedAsAmountOnly.add(fi + 1); }
+              }
+              aoa.push(sub);
+              lastBlockRow = sub;
+              if (sub[3] && !sub[4]) lastRowWithNoAmount = sub;
+            }
+          }
+        }
+        if (usedNextExportLine) j++;
+      }
+      return aoa;
+    }
+
+    keywordsEl.addEventListener('input', renderResult);
+
+    const PDF_RENDER_SCALE = 1.5;
+    const HIGHLIGHT_COLOR = 'rgba(120, 180, 255, 0.28)';
+
+    /** getTextInReadingOrder와 동일한 방식으로 items를 줄 단위로 그룹화. 반환: [{ lineText, items }] */
+    function groupItemsIntoLines(content) {
+      const items = content.items.map(it => {
+        const t = it.transform;
+        const x = t[4];
+        const y = t[5];
+        return { str: it.str, x, y, width: it.width, height: it.height };
+      });
+      items.sort((a, b) => {
+        const lineA = Math.round(a.y / 5) * 5;
+        const lineB = Math.round(b.y / 5) * 5;
+        if (lineB !== lineA) return lineB - lineA;
+        return a.x - b.x;
+      });
+      const Y_GAP = 3;
+      const lines = [];
+      let lastY = null;
+      let group = [];
+      for (const it of items) {
+        const y = Math.round(it.y / Y_GAP) * Y_GAP;
+        if (lastY !== null && Math.abs(y - lastY) > Y_GAP) {
+          const lineText = group.map(g => g.str).join(' ');
+          if (lineText.trim()) lines.push({ lineText: lineText.trim(), items: group });
+          group = [];
+        }
+        lastY = y;
+        group.push(it);
+      }
+      if (group.length) {
+        const lineText = group.map(g => g.str).join(' ');
+        if (lineText.trim()) lines.push({ lineText: lineText.trim(), items: group });
+      }
+      return lines;
+    }
+
+    function normForMatch(s) {
+      return String(s || '').replace(/\s+/g, '').replace(/^[○ㅇ]/, '○');
+    }
+
+    /** 정규화된 줄이 검색 결과에 포함되는지 */
+    function isLineMatched(normalizedLineText) {
+      const n = normForMatch(normalizedLineText);
+      for (const ex of currentExportLines) {
+        const en = normForMatch(ex);
+        if (n === en || n.indexOf(en) >= 0 || en.indexOf(n) >= 0) return true;
+      }
+      return false;
+    }
+
+    /** 하이라이트 레이어만 그리기 (검색 결과 변경 시) */
+    async function drawPdfHighlights() {
+      if (!currentPdfDoc || !pdfCanvasContainer.children.length) return;
+      const numPages = currentPdfDoc.numPages;
+      for (let pageIndex = 0; pageIndex < numPages; pageIndex++) {
+        const wrap = pdfCanvasContainer.querySelector(`[data-page-index="${pageIndex}"]`);
+        if (!wrap) continue;
+        const highlightCanvas = wrap.querySelector('.highlight-layer');
+        if (!highlightCanvas) continue;
+        const page = await currentPdfDoc.getPage(pageIndex + 1);
+        const viewport = page.getViewport({ scale: PDF_RENDER_SCALE });
+        const content = await page.getTextContent();
+        const lineGroups = groupItemsIntoLines(content);
+        const ctx = highlightCanvas.getContext('2d');
+        highlightCanvas.width = viewport.width;
+        highlightCanvas.height = viewport.height;
+        ctx.fillStyle = HIGHLIGHT_COLOR;
+        lineGroups.forEach((group) => {
+          const normalizedLine = normalizeExtractedText(group.lineText);
+          if (!currentExportLines.length || !isLineMatched(normalizedLine)) return;
+          let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+          for (const it of group.items) {
+            const x = it.x;
+            const y = it.y;
+            const w = it.width || 0;
+            const h = it.height || 10;
+            minX = Math.min(minX, x);
+            minY = Math.min(minY, y - h);
+            maxX = Math.max(maxX, x + w);
+            maxY = Math.max(maxY, y);
+          }
+          if (minX === Infinity) return;
+          const pad = 2;
+          const [left, top] = viewport.convertToViewportPoint(minX - pad, maxY + pad);
+          const [right, bottom] = viewport.convertToViewportPoint(maxX + pad, minY - pad);
+          ctx.fillRect(left, top, right - left, bottom - top);
+        });
+      }
+    }
+
+    pdfInput.addEventListener('change', async (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+
+      if (currentPdfUrl) URL.revokeObjectURL(currentPdfUrl);
+      currentPdfUrl = URL.createObjectURL(file);
+
+      pdfPlaceholder.style.display = 'none';
+      pdfCanvasContainer.style.display = 'block';
+      pdfCanvasContainer.innerHTML = '';
+
+      currentPdfFile = file;
+      fileNameEl.textContent = file.name;
+
+      try {
+        const arrayBuffer = await file.arrayBuffer();
+        const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+        currentPdfDoc = pdf;
+        const numPages = pdf.numPages;
+        const pageTexts = [];
+        for (let i = 1; i <= numPages; i++) {
+          const page = await pdf.getPage(i);
+          const content = await page.getTextContent();
+          const pageStr = getTextInReadingOrder(content);
+          pageTexts.push(normalizeExtractedText(pageStr));
+        }
+        currentPageTexts = pageTexts;
+        currentFullText = pageTexts.join('\n\n').trim();
+        currentPdfMeta = extractPdfMeta(currentFullText);
+        currentPdfFileName = file.name || '';
+        for (let i = 0; i < numPages; i++) {
+          const page = await pdf.getPage(i + 1);
+          const viewport = page.getViewport({ scale: PDF_RENDER_SCALE });
+          const wrap = document.createElement('div');
+          wrap.className = 'pdf-page-wrap';
+          wrap.dataset.pageIndex = i;
+          const mainCanvas = document.createElement('canvas');
+          mainCanvas.width = viewport.width;
+          mainCanvas.height = viewport.height;
+          const highlightCanvas = document.createElement('canvas');
+          highlightCanvas.className = 'highlight-layer';
+          highlightCanvas.width = viewport.width;
+          highlightCanvas.height = viewport.height;
+          wrap.appendChild(mainCanvas);
+          wrap.appendChild(highlightCanvas);
+          pdfCanvasContainer.appendChild(wrap);
+          const ctx = mainCanvas.getContext('2d');
+          await page.render({
+            canvasContext: ctx,
+            viewport: viewport,
+          }).promise;
+        }
+        renderResult();
+        drawPdfHighlights();
+      } catch (err) {
+        console.error('PDF 로드 실패:', err);
+        pdfPlaceholder.style.display = 'flex';
+        pdfCanvasContainer.style.display = 'none';
+        pdfCanvasContainer.innerHTML = '';
+        currentFullText = '';
+        currentPageTexts = [];
+        currentPdfMeta = { 부서: '', 정책: '', 단위: '' };
+        currentPdfFileName = '';
+        currentPdfFile = null;
+        currentPdfDoc = null;
+        renderResult();
+        alert('PDF를 불러오지 못했습니다. 파일이 손상되지 않았는지 확인해 주세요.');
+      }
+    });
+
+    excelBtn.addEventListener('click', async () => {
+      const keywordsRaw = (keywordsEl.value || '').trim();
+      if (!keywordsRaw) {
+        alert('예산 코드(201, 207 등)를 입력하세요.');
+        return;
+      }
+      if (currentPdfFile) {
+        try {
+          const form = new FormData();
+          form.append('pdf', currentPdfFile);
+          form.append('keywords', keywordsRaw);
+          const res = await fetch('/api/extract-excel', { method: 'POST', body: form });
+          if (res.ok) {
+            const blob = await res.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = (currentPdfFileName ? currentPdfFileName.replace(/\.pdf$/i, '') : '키워드추출결과') + '.xlsx';
+            a.click();
+            URL.revokeObjectURL(url);
+            return;
+          }
+          const err = await res.json().catch(() => ({}));
+          if (err.error) alert(err.error);
+        } catch (e) {
+          console.warn('Python API 실패, 브라우저 추출로 진행:', e);
+        }
+      }
+      if (typeof XLSX === 'undefined') return;
+      const aoa = buildExcelAoa();
+      const ws = XLSX.utils.aoa_to_sheet(aoa);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, '키워드추출');
+      const baseName = currentPdfFileName.replace(/\.pdf$/i, '') || '키워드추출결과';
+      XLSX.writeFile(wb, baseName + '.xlsx');
+    });
+  </script>
+</body>
+</html>
