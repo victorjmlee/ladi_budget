@@ -28,15 +28,44 @@ jobs:
       - name: Build EXE
         run: pyinstaller ladi.spec
 
+      - name: Smoke test EXE
+        shell: pwsh
+        run: |
+          $proc = Start-Process -FilePath "dist\LADI.exe" -PassThru
+          Start-Sleep -Seconds 5
+          try {
+            $response = Invoke-WebRequest -Uri "http://localhost:3580/" -UseBasicParsing -TimeoutSec 10
+            if ($response.StatusCode -eq 200) {
+              Write-Host "✅ Server started OK (HTTP 200)"
+            } else {
+              Write-Host "❌ Unexpected status: $($response.StatusCode)"
+              exit 1
+            }
+            # PDF 업로드 테스트 (샘플 PDF 없으므로 엔드포인트 응답만 확인)
+            try {
+              $r = Invoke-WebRequest -Uri "http://localhost:3580/api/extract-excel" -Method POST -UseBasicParsing -TimeoutSec 10
+            } catch {
+              $status = $_.Exception.Response.StatusCode.Value__
+              if ($status -eq 400) {
+                Write-Host "✅ API endpoint responding (400 = no PDF, expected)"
+              } else {
+                Write-Host "❌ API unexpected status: $status"
+                exit 1
+              }
+            }
+          } finally {
+            Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+          }
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: LADI예산서-windows
-          path: dist/LADI예산서.exe
+          name: LADI-windows
+          path: dist/LADI.exe
 
       - name: Create Release (on tag)
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/LADI예산서.exe
+          files: dist/LADI.exe
           generate_release_notes: true
