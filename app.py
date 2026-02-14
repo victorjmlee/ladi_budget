@@ -6,7 +6,10 @@
 """
 import io
 import os
+import sys
 import tempfile
+import threading
+import webbrowser
 from pathlib import Path
 
 from flask import Flask, request, send_file, send_from_directory
@@ -16,7 +19,13 @@ from pdf_extract import extract_text_by_page, extract_by_codes, extract_by_keywo
 from excel_build import build_excel_aoa
 
 app = Flask(__name__, static_folder=None)
-ROOT = Path(__file__).resolve().parent
+
+# PyInstaller 패키징 시 경로 호환
+if getattr(sys, "frozen", False):
+    ROOT = Path(sys._MEIPASS)
+else:
+    ROOT = Path(__file__).resolve().parent
+
 PORT = int(os.environ.get("PORT", 3580))
 
 
@@ -184,4 +193,7 @@ def extract_excel():
 
 
 if __name__ == "__main__":
+    # 패키징 실행 시 브라우저 자동 열기
+    if getattr(sys, "frozen", False):
+        threading.Timer(1.0, lambda: webbrowser.open(f"http://localhost:{PORT}")).start()
     app.run(host="0.0.0.0", port=PORT, debug=False)
