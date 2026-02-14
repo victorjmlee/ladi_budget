@@ -128,7 +128,7 @@ def extract_excel():
         ws.title = "예산추출"
         header_fill = PatternFill(start_color="DDEBF7", end_color="DDEBF7", fill_type="solid")
         verify_fill = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
-        miss_fill = PatternFill(start_color="FCE4D6", end_color="FCE4D6", fill_type="solid")
+        miss_fill = PatternFill(start_color="E2EFDA", end_color="E2EFDA", fill_type="solid")
 
         in_miss = False
         for r, row in enumerate(combined, 1):

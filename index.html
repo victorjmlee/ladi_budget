@@ -228,6 +228,8 @@
     let currentExportByKeyword = {};
     let currentExportLines = [];
     let currentExportPageIndex = [];
+    let currentCodeLines = [];      // 코드 검색 매칭 줄
+    let currentKwLines = [];        // 키워드 검색 매칭 줄
 
     function parseKeywords(raw) {
       return raw
@@ -720,6 +722,8 @@
       }
       currentExportLines = deduped.map(b => b.text);
       currentExportPageIndex = deduped.map(b => b.pageIndex || 0);
+      currentCodeLines = codeBlocks.map(b => b.text);
+      currentKwLines = kwBlocks.map(b => b.text);
       drawPdfHighlights();
     }
 
@@ -966,7 +970,9 @@
     keywordsEl.addEventListener('input', renderResult);
 
     const PDF_RENDER_SCALE = 1.5;
-    const HIGHLIGHT_COLOR = 'rgba(120, 180, 255, 0.28)';
+    const COLOR_CODE = 'rgba(100, 160, 255, 0.30)';     // 파랑: 코드 검색
+    const COLOR_KW = 'rgba(80, 200, 120, 0.30)';        // 초록: 키워드 검색
+    const COLOR_BOTH = 'rgba(255, 210, 60, 0.35)';      // 노랑: 둘 다 겹침
 
     /** getTextInReadingOrder와 동일한 방식으로 items를 줄 단위로 그룹화. 반환: [{ lineText, items }] */
     function groupItemsIntoLines(content) {
@@ -1007,14 +1013,22 @@
       return String(s || '').replace(/\s+/g, '').replace(/^[○ㅇ]/, '○');
     }
 
-    /** 정규화된 줄이 검색 결과에 포함되는지 */
-    function isLineMatched(normalizedLineText) {
+    /** 줄이 코드/키워드 어디에 매칭되는지 반환: 'both' | 'code' | 'kw' | null */
+    function getLineMatchType(normalizedLineText) {
       const n = normForMatch(normalizedLineText);
-      for (const ex of currentExportLines) {
-        const en = normForMatch(ex);
-        if (n === en || n.indexOf(en) >= 0 || en.indexOf(n) >= 0) return true;
-      }
-      return false;
+      const matchList = (list) => {
+        for (const ex of list) {
+          const en = normForMatch(ex);
+          if (n === en || n.indexOf(en) >= 0 || en.indexOf(n) >= 0) return true;
+        }
+        return false;
+      };
+      const inCode = matchList(currentCodeLines);
+      const inKw = matchList(currentKwLines);
+      if (inCode && inKw) return 'both';
+      if (inCode) return 'code';
+      if (inKw) return 'kw';
+      return null;
     }
 
     /** 하이라이트 레이어만 그리기 (검색 결과 변경 시) */
@@ -1033,10 +1047,10 @@
         const ctx = highlightCanvas.getContext('2d');
         highlightCanvas.width = viewport.width;
         highlightCanvas.height = viewport.height;
-        ctx.fillStyle = HIGHLIGHT_COLOR;
         lineGroups.forEach((group) => {
           const normalizedLine = normalizeExtractedText(group.lineText);
-          if (!currentExportLines.length || !isLineMatched(normalizedLine)) return;
+          const matchType = getLineMatchType(normalizedLine);
+          if (!matchType) return;
           let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
           for (const it of group.items) {
             const x = it.x;
@@ -1052,6 +1066,7 @@
           const pad = 2;
           const [left, top] = viewport.convertToViewportPoint(minX - pad, maxY + pad);
           const [right, bottom] = viewport.convertToViewportPoint(maxX + pad, minY - pad);
+          ctx.fillStyle = matchType === 'both' ? COLOR_BOTH : matchType === 'code' ? COLOR_CODE : COLOR_KW;
           ctx.fillRect(left, top, right - left, bottom - top);
         });
       }
