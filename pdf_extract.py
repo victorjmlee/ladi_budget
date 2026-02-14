@@ -180,19 +180,26 @@ def extract_by_codes(
     return result
 
 
+def _search_norm(s: str) -> str:
+    """검색용 정규화: 공백·특수문자 제거, 기호 통일."""
+    t = (s or "").replace(" ", "")
+    t = t.replace("○", "○").replace("ㅇ", "○")
+    t = t.replace("ㆍ", "").replace("·", "").replace("•", "")
+    return t
+
+
 def extract_by_keywords(
     page_texts: List[str], keywords: List[str]
 ) -> List[Tuple[str, int, int]]:
-    """키워드가 포함된 줄 (및 그 주변) 수집. (텍스트, 페이지인덱스, 줄인덱스) 반환."""
+    """키워드가 포함된 줄 수집. (텍스트, 페이지인덱스, 줄인덱스) 반환."""
     result: List[Tuple[str, int, int]] = []
-    norm = lambda s: (s or "").replace(" ", "").replace("○", "○").replace("ㅇ", "○")
-    kw_norms = [norm(k) for k in keywords if k.strip()]
+    kw_norms = [_search_norm(k) for k in keywords if k.strip()]
     for page_index, text in enumerate(page_texts):
         page_lines = get_page_lines(text)
         for line_index, line in enumerate(page_lines):
-            n = norm(line)
+            n = _search_norm(line)
             for kn in kw_norms:
-                if kn in n or n in kn:
+                if kn in n:
                     result.append((line, page_index, line_index))
                     break
     return result

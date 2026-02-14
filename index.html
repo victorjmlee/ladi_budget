@@ -528,13 +528,17 @@
       return rows;
     }
 
-    /** 키워드 매칭: 공백 제거한 문자열도 비교해서 '연 구' → '연구' 매칭 */
+    /** 검색용 정규화: 공백·특수문자 제거, 기호 통일 */
+    function searchNorm(s) {
+      return String(s || '').replace(/\s+/g, '')
+        .replace(/[○ㅇ]/g, '○')
+        .replace(/[ㆍ·•]/g, '');
+    }
+
+    /** 키워드 매칭: 정규화 후 포함 여부 */
     function lineMatchesKeyword(line, keyword) {
       if (!keyword) return false;
-      if (line.includes(keyword)) return true;
-      const normLine = line.replace(/\s+/g, '');
-      const normKw = keyword.replace(/\s+/g, '');
-      return normLine.includes(normKw);
+      return searchNorm(line).includes(searchNorm(keyword));
     }
 
     function extractByKeywords(fullText, keywords) {

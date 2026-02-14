@@ -77,40 +77,67 @@ def extract_excel():
         import openpyxl
         from openpyxl.styles import Font, PatternFill
         from openpyxl.utils import get_column_letter
+        from parser import EXCEL_HEADER
 
-        def _write_sheet(ws, aoa, fill_color="DDEBF7"):
-            hf = PatternFill(start_color=fill_color, end_color=fill_color, fill_type="solid")
-            for r, row in enumerate(aoa, 1):
-                for c, val in enumerate(row, 1):
-                    cell = ws.cell(row=r, column=c, value=val or "")
-                    if r == 1:
-                        cell.font = Font(bold=True)
-                        if c <= 7:
-                            cell.fill = hf
-            for col_idx in range(1, 8):
-                col_letter = get_column_letter(col_idx)
-                max_len = 0
-                for row_idx in range(1, len(aoa) + 1):
-                    cell = ws.cell(row=row_idx, column=col_idx)
-                    val = cell.value
-                    if val is not None:
-                        s = str(val)
-                        length = sum(2 if "\uAC00" <= ch <= "\uD7A3" or ord(ch) > 127 else 1 for ch in s)
-                        max_len = max(max_len, length)
-                ws.column_dimensions[col_letter].width = min(max(max_len / 2 + 2, 8), 55)
+        # 단일 시트에 코드/키워드 결과 합치기 + 검색방식 컬럼(H)
+        def _norm_key(s):
+            return (s or "").replace(" ", "").replace("ㅇ", "○").strip()
+
+        combined = [EXCEL_HEADER + ["검색방식"]]
+        code_keys = set()
+
+        if code_aoa:
+            for row in code_aoa[1:]:
+                combined.append(row + ["코드"])
+                key = _norm_key(row[3])
+                if key and key != "편성목":
+                    code_keys.add(key)
+
+        if kw_aoa:
+            for row in kw_aoa[1:]:
+                key = _norm_key(row[3])
+                if key and key != "편성목" and key in code_keys:
+                    for existing in combined[1:]:
+                        if _norm_key(existing[3]) == key and existing[7] == "코드":
+                            existing[7] = "코드+키워드"
+                            break
+                else:
+                    combined.append(row + ["키워드"])
 
         wb = openpyxl.Workbook()
-        first = True
-        if code_aoa:
-            ws = wb.active
-            ws.title = "코드검색"
-            _write_sheet(ws, code_aoa, "DDEBF7")
-            first = False
-        if kw_aoa:
-            ws = wb.active if first else wb.create_sheet()
-            ws.title = "키워드검색"
-            _write_sheet(ws, kw_aoa, "E2EFDA")
-            first = False
+        ws = wb.active
+        ws.title = "예산추출"
+        header_fill = PatternFill(start_color="DDEBF7", end_color="DDEBF7", fill_type="solid")
+        kw_fill = PatternFill(start_color="E2EFDA", end_color="E2EFDA", fill_type="solid")
+        both_fill = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
+
+        for r, row in enumerate(combined, 1):
+            for c, val in enumerate(row, 1):
+                cell = ws.cell(row=r, column=c, value=val or "")
+                if r == 1:
+                    cell.font = Font(bold=True)
+                    cell.fill = header_fill
+                elif len(row) > 7:
+                    stype = row[7]
+                    if stype == "코드+키워드":
+                        cell.fill = both_fill
+                    elif stype == "키워드":
+                        cell.fill = kw_fill
+
+        ws.auto_filter.ref = f"A1:H{len(combined)}"
+
+        for col_idx in range(1, 9):
+            col_letter = get_column_letter(col_idx)
+            max_len = 0
+            for row_idx in range(1, len(combined) + 1):
+                cell = ws.cell(row=row_idx, column=col_idx)
+                val = cell.value
+                if val is not None:
+                    s = str(val)
+                    length = sum(2 if "\uAC00" <= ch <= "\uD7A3" or ord(ch) > 127 else 1 for ch in s)
+                    max_len = max(max_len, length)
+            ws.column_dimensions[col_letter].width = min(max(max_len / 2 + 2, 8), 55)
+
         buf = io.BytesIO()
         wb.save(buf)
         buf.seek(0)
