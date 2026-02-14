@@ -84,10 +84,11 @@ def extract_excel():
             n = _search_norm(text)
             return [kw for kw in keywords if _search_norm(kw) in n]
 
+        # ── 메인 결과(A-H) + 코드미포함(I-M) 구성 ──
         combined = [EXCEL_HEADER + ["키워드검수"]]
+        kw_only_rows = []  # 코드 미포함 항목 (I열~)
 
         if code_aoa:
-            # 코드 결과 = 메인. 각 행에 키워드 매칭 여부 표시
             code_text_norms = set()
             for row in code_aoa[1:]:
                 matched = _match_kws(row[3], kw_list) if row[3] and kw_list else []
@@ -95,7 +96,6 @@ def extract_excel():
                 if row[3] and row[3].strip() != "편성목":
                     code_text_norms.add(_search_norm(row[3]))
 
-            # 키워드로만 잡힌 항목 (코드로 안 잡힌 것) → 놓친 항목
             if kw_results:
                 seen = set()
                 kw_only = []
@@ -109,16 +109,12 @@ def extract_excel():
                         kw_only.append((line, pi, li))
                 if kw_only:
                     kw_only_aoa = build_excel_aoa(kw_only, page_texts)
-                    combined.append([""] * 8)
-                    combined.append(["", "", "",
-                                     "── 코드 미포함 (키워드로만 검색됨) ──",
-                                     "", "", "", ""])
                     for row in kw_only_aoa[1:]:
                         matched = _match_kws(row[3], kw_list) if row[3] else []
-                        combined.append(row + [", ".join(matched)])
+                        kw_only_rows.append([row[3], row[4], row[5], row[6],
+                                             ", ".join(matched)])
 
         elif kw_aoa:
-            # 키워드만 검색 (코드 없음)
             for row in kw_aoa[1:]:
                 matched = _match_kws(row[3], kw_list) if row[3] else []
                 combined.append(row + [", ".join(matched)])
@@ -128,38 +124,50 @@ def extract_excel():
         ws.title = "예산추출"
         header_fill = PatternFill(start_color="DDEBF7", end_color="DDEBF7", fill_type="solid")
         verify_fill = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
+        miss_header_fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
         miss_fill = PatternFill(start_color="E2EFDA", end_color="E2EFDA", fill_type="solid")
 
-        in_miss = False
+        # A-H: 메인 코드 결과
         for r, row in enumerate(combined, 1):
-            is_sep = len(row) > 3 and "코드 미포함" in (row[3] or "")
-            if is_sep:
-                in_miss = True
             for c, val in enumerate(row, 1):
                 cell = ws.cell(row=r, column=c, value=val or "")
                 if r == 1:
                     cell.font = Font(bold=True)
                     cell.fill = header_fill
-                elif is_sep:
-                    cell.font = Font(bold=True)
-                elif in_miss:
-                    cell.fill = miss_fill
                 elif c == 8 and val:
                     cell.fill = verify_fill
 
         ws.auto_filter.ref = f"A1:H{len(combined)}"
 
-        for col_idx in range(1, 9):
-            col_letter = get_column_letter(col_idx)
-            max_len = 0
-            for row_idx in range(1, len(combined) + 1):
-                cell = ws.cell(row=row_idx, column=col_idx)
-                val = cell.value
-                if val is not None:
-                    s = str(val)
-                    length = sum(2 if "\uAC00" <= ch <= "\uD7A3" or ord(ch) > 127 else 1 for ch in s)
-                    max_len = max(max_len, length)
-            ws.column_dimensions[col_letter].width = min(max(max_len / 2 + 2, 8), 55)
+        # I-M: 코드 미포함 (키워드로만 검색됨)
+        if kw_only_rows:
+            miss_headers = ["세부사업(코드미포함)", "예산액", "전년도예산액",
+                            "비교증감", "매칭키워드"]
+            for ci, hdr in enumerate(miss_headers):
+                cell = ws.cell(row=1, column=9 + ci, value=hdr)
+                cell.font = Font(bold=True)
+                cell.fill = miss_header_fill
+            for ri, row in enumerate(kw_only_rows, 2):
+                for ci, val in enumerate(row):
+                    cell = ws.cell(row=ri, column=9 + ci, value=val or "")
+                    cell.fill = miss_fill
+
+        # 컬럼 너비 자동 맞춤 (A-M)
+        def _auto_width(col_start, col_end):
+            for col_idx in range(col_start, col_end + 1):
+                col_letter = get_column_letter(col_idx)
+                max_len = 0
+                for row_idx in range(1, ws.max_row + 1):
+                    val = ws.cell(row=row_idx, column=col_idx).value
+                    if val is not None:
+                        s = str(val)
+                        length = sum(2 if "\uAC00" <= ch <= "\uD7A3"
+                                     or ord(ch) > 127 else 1 for ch in s)
+                        max_len = max(max_len, length)
+                ws.column_dimensions[col_letter].width = min(
+                    max(max_len * 0.8 + 3, 8), 55)
+
+        _auto_width(1, 13)
 
         buf = io.BytesIO()
         wb.save(buf)
