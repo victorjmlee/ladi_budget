@@ -36,7 +36,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name="LADI예산서",
+    name="LADI",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
