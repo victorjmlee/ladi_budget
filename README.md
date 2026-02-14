@@ -64,3 +64,4 @@ python run.py 세출예산사업명세서.pdf --keywords 물가,착한가격 --o
 
 - 출력 엑셀 컬럼: 부서, 정책, 단위, 세부사업, 예산액, 전년도예산액, 비교증감
 - 파싱 규칙은 `parser.py`, 블록 수집은 `pdf_extract.py`, 엑셀 행 구성은 `excel_build.py`에 있어 수정·테스트가 쉽습니다.
+# ladi_budget

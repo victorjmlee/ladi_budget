@@ -45,14 +45,16 @@ def extract_excel():
     file = request.files["pdf"]
     if not file or not file.filename or not file.filename.lower().endswith(".pdf"):
         return {"error": "PDF 파일을 선택하세요."}, 400
+    raw_codes = (request.form.get("codes") or "").strip()
     raw_keywords = (request.form.get("keywords") or "").strip()
-    keywords = parse_keywords(raw_keywords)
-    if not keywords:
-        return {"error": "키워드 또는 코드(201, 207 등)를 입력하세요."}, 400
-
-    is_code_mode = all(len(k) == 3 and k.isdigit() for k in keywords)
-    codes = keywords if is_code_mode else []
-    kw_list = keywords if not is_code_mode else []
+    codes = [s for s in parse_keywords(raw_codes) if len(s) == 3 and s.isdigit()]
+    kw_list = [s for s in parse_keywords(raw_keywords) if s]
+    # 하위호환: codes 필드 없이 keywords에 3자리 숫자만 온 경우 코드로 처리
+    if not codes and kw_list and all(len(k) == 3 and k.isdigit() for k in kw_list):
+        codes = kw_list
+        kw_list = []
+    if not codes and not kw_list:
+        return {"error": "코드(201, 207) 또는 키워드를 입력하세요."}, 400
 
     try:
         with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
@@ -60,13 +62,12 @@ def extract_excel():
             tmp_path = tmp.name
         try:
             page_texts = extract_text_by_page(tmp_path)
-            if codes:
-                export_list = extract_by_codes(page_texts, codes)
-            else:
-                export_list = extract_by_keywords(page_texts, kw_list)
-            if not export_list:
+            code_results = extract_by_codes(page_texts, codes) if codes else []
+            kw_results = extract_by_keywords(page_texts, kw_list) if kw_list else []
+            if not code_results and not kw_results:
                 return {"error": "매칭되는 줄이 없습니다."}, 400
-            aoa = build_excel_aoa(export_list, page_texts)
+            code_aoa = build_excel_aoa(code_results, page_texts) if code_results else None
+            kw_aoa = build_excel_aoa(kw_results, page_texts) if kw_results else None
         finally:
             try:
                 os.unlink(tmp_path)
@@ -76,35 +77,44 @@ def extract_excel():
         import openpyxl
         from openpyxl.styles import Font, PatternFill
         from openpyxl.utils import get_column_letter
+
+        def _write_sheet(ws, aoa, fill_color="DDEBF7"):
+            hf = PatternFill(start_color=fill_color, end_color=fill_color, fill_type="solid")
+            for r, row in enumerate(aoa, 1):
+                for c, val in enumerate(row, 1):
+                    cell = ws.cell(row=r, column=c, value=val or "")
+                    if r == 1:
+                        cell.font = Font(bold=True)
+                        if c <= 7:
+                            cell.fill = hf
+            for col_idx in range(1, 8):
+                col_letter = get_column_letter(col_idx)
+                max_len = 0
+                for row_idx in range(1, len(aoa) + 1):
+                    cell = ws.cell(row=row_idx, column=col_idx)
+                    val = cell.value
+                    if val is not None:
+                        s = str(val)
+                        length = sum(2 if "\uAC00" <= ch <= "\uD7A3" or ord(ch) > 127 else 1 for ch in s)
+                        max_len = max(max_len, length)
+                ws.column_dimensions[col_letter].width = min(max(max_len / 2 + 2, 8), 55)
+
         wb = openpyxl.Workbook()
-        ws = wb.active
-        ws.title = "예산추출"
-        # 하늘색2 (Excel 테마 기준 밝은 하늘색)
-        header_fill = PatternFill(start_color="DDEBF7", end_color="DDEBF7", fill_type="solid")
-        for r, row in enumerate(aoa, 1):
-            for c, val in enumerate(row, 1):
-                cell = ws.cell(row=r, column=c, value=val or "")
-                if r == 1:
-                    cell.font = Font(bold=True)
-                    if c <= 7:
-                        cell.fill = header_fill
-        # A~G 컬럼 너비: 해당 열 셀 값 길이에 맞춤 (한글 등 고려해 약간 여유)
-        for col_idx in range(1, 8):
-            col_letter = get_column_letter(col_idx)
-            max_len = 0
-            for row_idx in range(1, len(aoa) + 1):
-                cell = ws.cell(row=row_idx, column=col_idx)
-                val = cell.value
-                if val is not None:
-                    s = str(val)
-                    # 한글/전각은 대략 2배로 계산
-                    length = sum(2 if "\uAC00" <= ch <= "\uD7A3" or ord(ch) > 127 else 1 for ch in s)
-                    max_len = max(max_len, length)
-            ws.column_dimensions[col_letter].width = min(max(max_len / 2 + 2, 8), 55)
+        first = True
+        if code_aoa:
+            ws = wb.active
+            ws.title = "코드검색"
+            _write_sheet(ws, code_aoa, "DDEBF7")
+            first = False
+        if kw_aoa:
+            ws = wb.active if first else wb.create_sheet()
+            ws.title = "키워드검색"
+            _write_sheet(ws, kw_aoa, "E2EFDA")
+            first = False
         buf = io.BytesIO()
         wb.save(buf)
         buf.seek(0)
-        base_name = Path(file.filename).stem or "키워드추출결과"
+        base_name = Path(file.filename).stem or "검색결과"
         return send_file(
             buf,
             mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

@@ -139,7 +139,7 @@
     }
     .right-top textarea {
       width: 100%;
-      min-height: 140px;
+      min-height: 56px;
       padding: 0.5rem;
       background: var(--bg);
       border: 1px solid var(--border);
@@ -190,11 +190,13 @@
     </div>
     <div class="panel">
       <div class="right-top">
-        <label for="keywords">예산 코드 (쉼표 또는 줄바꿈으로 구분)</label>
-        <textarea id="keywords" placeholder="예: 201, 207, 401"></textarea>
+        <label for="codes">예산 코드 (쉼표 또는 줄바꿈으로 구분)</label>
+        <textarea id="codes" placeholder="예: 201, 207, 401" rows="2"></textarea>
+        <label for="keywords" style="margin-top:0.5rem">키워드 (쉼표 또는 줄바꿈으로 구분)</label>
+        <textarea id="keywords" placeholder="예: 물가, 착한가격, 전통시장" rows="2"></textarea>
       </div>
       <h2>추출 결과</h2>
-      <div class="panel-content empty" id="result">예산 코드를 입력하고 PDF를 업로드하면 여기에 추출된 내용이 표시됩니다.</div>
+      <div class="panel-content empty" id="result">코드 또는 키워드를 입력하고 PDF를 업로드하면 여기에 추출된 내용이 표시됩니다.</div>
       <div class="download-wrap">
         <button type="button" id="excel-btn" disabled>엑셀 다운로드 (.xlsx)</button>
       </div>
@@ -208,6 +210,7 @@
     const fileNameEl = document.getElementById('file-name');
     const pdfPlaceholder = document.getElementById('pdf-placeholder');
     const pdfCanvasContainer = document.getElementById('pdf-canvas-container');
+    const codesEl = document.getElementById('codes');
     const keywordsEl = document.getElementById('keywords');
     const resultEl = document.getElementById('result');
     const excelBtn = document.getElementById('excel-btn');
@@ -624,6 +627,7 @@
     }
 
     function renderResult() {
+      const codes = parseKeywords(codesEl.value).filter(k => /^\d{3}$/.test(k.trim()));
       const keywords = parseKeywords(keywordsEl.value);
       if (!currentFullText) {
         resultEl.textContent = 'PDF를 먼저 업로드하세요.';
@@ -631,36 +635,87 @@
         excelBtn.disabled = true;
         return;
       }
-      if (!keywords.length) {
-        resultEl.textContent = '예산 코드(201, 207, 401 등)를 입력하세요 (쉼표 또는 줄바꿈 구분).';
+      if (!codes.length && !keywords.length) {
+        resultEl.textContent = '예산 코드(201, 207 등) 또는 키워드를 입력하세요.';
         resultEl.classList.add('empty');
         excelBtn.disabled = true;
         return;
       }
-      const isCodeMode = keywords.every((k) => /^\d{3}$/.test(k.trim()));
-      const blocks = currentPageTexts.length
-        ? isCodeMode
-          ? extractByCodesWithPages(currentPageTexts, keywords.map((k) => k.trim()))
-          : extractByKeywordsWithPages(currentPageTexts, keywords)
-        : isCodeMode
-          ? extractByCodesWithPages([currentFullText], keywords.map((k) => k.trim())).map((b) => ({ ...b, pageIndex: 0 }))
-          : extractByKeywords(currentFullText, keywords).map((x) => ({ ...x, pageIndex: 0 }));
-      currentFormatted = isCodeMode
-        ? '코드 조회: ' + keywords.join(', ') + '\n\n' + blocks.map((b) => b.text).join('\n\n')
-        : formatAsQuote(blocks, keywords);
+      const pts = currentPageTexts.length ? currentPageTexts : [currentFullText];
+      const codeBlocks = codes.length ? extractByCodesWithPages(pts, codes) : [];
+      const kwBlocks = keywords.length ? extractByKeywordsWithPages(pts, keywords) : [];
+      if (!codeBlocks.length && !kwBlocks.length) {
+        resultEl.textContent = '매칭되는 내용이 없습니다.';
+        resultEl.classList.add('empty');
+        excelBtn.disabled = true;
+        return;
+      }
+      const lines = [];
+      if (codeBlocks.length) {
+        lines.push('════════════════════════════════════════');
+        lines.push('  코드 검색 결과');
+        lines.push('════════════════════════════════════════');
+        lines.push('');
+        const byCode = {};
+        codes.forEach(c => { byCode[c] = []; });
+        codeBlocks.forEach(b => {
+          b.keywords.forEach(kw => {
+            if (byCode[kw] && !byCode[kw].includes(b.text)) byCode[kw].push(b.text);
+          });
+        });
+        codes.forEach(code => {
+          const items = byCode[code] || [];
+          lines.push('■ ' + code);
+          lines.push('────────────────────────────────────────');
+          if (!items.length) lines.push('  (해당 코드 내용 없음)');
+          else items.forEach((text, i) => lines.push('  ' + (i + 1) + '. ' + text));
+          lines.push('');
+        });
+      }
+      if (kwBlocks.length) {
+        lines.push('════════════════════════════════════════');
+        lines.push('  키워드 검색 결과');
+        lines.push('════════════════════════════════════════');
+        lines.push('');
+        const byKw = {};
+        keywords.forEach(k => { byKw[k] = []; });
+        kwBlocks.forEach(b => {
+          b.keywords.forEach(kw => {
+            if (byKw[kw] && !byKw[kw].includes(b.text)) byKw[kw].push(b.text);
+          });
+        });
+        keywords.forEach(kw => {
+          const items = byKw[kw] || [];
+          lines.push('■ ' + kw);
+          lines.push('────────────────────────────────────────');
+          if (!items.length) lines.push('  (해당 키워드 내용 없음)');
+          else items.forEach((text, i) => lines.push('  ' + (i + 1) + '. ' + text));
+          lines.push('');
+        });
+      }
+      currentFormatted = lines.join('\n');
       resultEl.textContent = currentFormatted;
       resultEl.classList.remove('empty');
       excelBtn.disabled = false;
-      currentExportKeywords = keywords.slice();
+      const allBlocks = [...codeBlocks, ...kwBlocks];
+      currentExportKeywords = [...codes, ...keywords];
       currentExportByKeyword = {};
-      keywords.forEach(kw => { currentExportByKeyword[kw] = []; });
-      blocks.forEach(({ keywords: kws, text }) => {
+      currentExportKeywords.forEach(kw => { currentExportByKeyword[kw] = []; });
+      allBlocks.forEach(({ keywords: kws, text }) => {
         kws.forEach(kw => {
-          if (!currentExportByKeyword[kw].includes(text)) currentExportByKeyword[kw].push(text);
+          if (currentExportByKeyword[kw] && !currentExportByKeyword[kw].includes(text)) {
+            currentExportByKeyword[kw].push(text);
+          }
         });
       });
-      currentExportLines = blocks.map(b => b.text);
-      currentExportPageIndex = blocks.map(b => b.pageIndex);
+      const seen = new Set();
+      const deduped = [];
+      for (const b of allBlocks) {
+        const key = b.text + '||' + (b.pageIndex || 0);
+        if (!seen.has(key)) { seen.add(key); deduped.push(b); }
+      }
+      currentExportLines = deduped.map(b => b.text);
+      currentExportPageIndex = deduped.map(b => b.pageIndex || 0);
       drawPdfHighlights();
     }
 
@@ -903,6 +958,7 @@
       return aoa;
     }
 
+    codesEl.addEventListener('input', renderResult);
     keywordsEl.addEventListener('input', renderResult);
 
     const PDF_RENDER_SCALE = 1.5;
@@ -1068,15 +1124,17 @@
     });
 
     excelBtn.addEventListener('click', async () => {
+      const codesRaw = (codesEl.value || '').trim();
       const keywordsRaw = (keywordsEl.value || '').trim();
-      if (!keywordsRaw) {
-        alert('예산 코드(201, 207 등)를 입력하세요.');
+      if (!codesRaw && !keywordsRaw) {
+        alert('코드 또는 키워드를 입력하세요.');
         return;
       }
       if (currentPdfFile) {
         try {
           const form = new FormData();
           form.append('pdf', currentPdfFile);
+          form.append('codes', codesRaw);
           form.append('keywords', keywordsRaw);
           const res = await fetch('/api/extract-excel', { method: 'POST', body: form });
           if (res.ok) {
