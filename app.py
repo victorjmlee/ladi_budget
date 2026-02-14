@@ -78,51 +78,74 @@ def extract_excel():
         from openpyxl.styles import Font, PatternFill
         from openpyxl.utils import get_column_letter
         from parser import EXCEL_HEADER
+        from pdf_extract import _search_norm
 
-        # 단일 시트에 코드/키워드 결과 합치기 + 검색방식 컬럼(H)
-        def _norm_key(s):
-            return (s or "").replace(" ", "").replace("ㅇ", "○").strip()
+        def _match_kws(text, keywords):
+            n = _search_norm(text)
+            return [kw for kw in keywords if _search_norm(kw) in n]
 
-        combined = [EXCEL_HEADER + ["검색방식"]]
-        code_keys = set()
+        combined = [EXCEL_HEADER + ["키워드검수"]]
 
         if code_aoa:
+            # 코드 결과 = 메인. 각 행에 키워드 매칭 여부 표시
+            code_text_norms = set()
             for row in code_aoa[1:]:
-                combined.append(row + ["코드"])
-                key = _norm_key(row[3])
-                if key and key != "편성목":
-                    code_keys.add(key)
+                matched = _match_kws(row[3], kw_list) if row[3] and kw_list else []
+                combined.append(row + [", ".join(matched)])
+                if row[3] and row[3].strip() != "편성목":
+                    code_text_norms.add(_search_norm(row[3]))
 
-        if kw_aoa:
+            # 키워드로만 잡힌 항목 (코드로 안 잡힌 것) → 놓친 항목
+            if kw_results:
+                seen = set()
+                kw_only = []
+                for line, pi, li in kw_results:
+                    n = _search_norm(line)
+                    if n in seen:
+                        continue
+                    in_code = any(n in cn or cn in n for cn in code_text_norms)
+                    if not in_code:
+                        seen.add(n)
+                        kw_only.append((line, pi, li))
+                if kw_only:
+                    kw_only_aoa = build_excel_aoa(kw_only, page_texts)
+                    combined.append([""] * 8)
+                    combined.append(["", "", "",
+                                     "── 코드 미포함 (키워드로만 검색됨) ──",
+                                     "", "", "", ""])
+                    for row in kw_only_aoa[1:]:
+                        matched = _match_kws(row[3], kw_list) if row[3] else []
+                        combined.append(row + [", ".join(matched)])
+
+        elif kw_aoa:
+            # 키워드만 검색 (코드 없음)
             for row in kw_aoa[1:]:
-                key = _norm_key(row[3])
-                if key and key != "편성목" and key in code_keys:
-                    for existing in combined[1:]:
-                        if _norm_key(existing[3]) == key and existing[7] == "코드":
-                            existing[7] = "코드+키워드"
-                            break
-                else:
-                    combined.append(row + ["키워드"])
+                matched = _match_kws(row[3], kw_list) if row[3] else []
+                combined.append(row + [", ".join(matched)])
 
         wb = openpyxl.Workbook()
         ws = wb.active
         ws.title = "예산추출"
         header_fill = PatternFill(start_color="DDEBF7", end_color="DDEBF7", fill_type="solid")
-        kw_fill = PatternFill(start_color="E2EFDA", end_color="E2EFDA", fill_type="solid")
-        both_fill = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
+        verify_fill = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
+        miss_fill = PatternFill(start_color="FCE4D6", end_color="FCE4D6", fill_type="solid")
 
+        in_miss = False
         for r, row in enumerate(combined, 1):
+            is_sep = len(row) > 3 and "코드 미포함" in (row[3] or "")
+            if is_sep:
+                in_miss = True
             for c, val in enumerate(row, 1):
                 cell = ws.cell(row=r, column=c, value=val or "")
                 if r == 1:
                     cell.font = Font(bold=True)
                     cell.fill = header_fill
-                elif len(row) > 7:
-                    stype = row[7]
-                    if stype == "코드+키워드":
-                        cell.fill = both_fill
-                    elif stype == "키워드":
-                        cell.fill = kw_fill
+                elif is_sep:
+                    cell.font = Font(bold=True)
+                elif in_miss:
+                    cell.fill = miss_fill
+                elif c == 8 and val:
+                    cell.fill = verify_fill
 
         ws.auto_filter.ref = f"A1:H{len(combined)}"
 
