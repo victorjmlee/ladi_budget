@@ -1220,28 +1220,33 @@
           let ocrDone = false;
 
           // 서버 OCR 시도 (pytesseract 기반 - 정확도 높음)
+          let _debugInfo = 'OCR 디버그:\n';
           try {
             ocrText.textContent = 'OCR 처리 중... (서버)';
             ocrBar.style.width = '50%';
             const form = new FormData();
             form.append('pdf', file);
             const res = await fetch('/api/ocr-extract', { method: 'POST', body: form });
+            _debugInfo += `서버 응답: ${res.status}\n`;
             if (res.ok) {
               const data = await res.json();
               const joined = (data.page_texts || []).join('\n').trim();
+              _debugInfo += `서버 텍스트 길이: ${joined.length}\n`;
               if (joined.length > 20) {
                 currentPageTexts = data.page_texts;
                 currentFullText = data.page_texts.join('\n\n').trim();
                 isOcrPdf = true;
                 ocrDone = true;
+                _debugInfo += '서버 OCR 성공\n';
               }
             }
           } catch (e) {
-            console.warn('서버 OCR 실패, 브라우저 OCR로 진행:', e);
+            _debugInfo += `서버 OCR 에러: ${e.message}\n`;
           }
 
           // 서버 OCR 실패 시 브라우저 Tesseract.js fallback
           if (!ocrDone) {
+            _debugInfo += '브라우저 Tesseract.js 시작...\n';
             try {
               const ocrProgress = function(pageIdx, total, workerProg) {
                 const pct = ((pageIdx + workerProg) / total) * 100;
@@ -1249,15 +1254,22 @@
                 ocrBar.style.width = pct.toFixed(1) + '%';
               };
               const ocrTexts = await ocrPdfPages(pdf, numPages, ocrProgress);
+              const ocrJoined = ocrTexts.join('\n').trim();
+              _debugInfo += `브라우저 OCR 텍스트 길이: ${ocrJoined.length}\n`;
+              // 첫 페이지에서 201 포함 줄 확인
+              const p0lines = (ocrTexts[0]||'').split('\n').filter(l => l.includes('201'));
+              _debugInfo += `페이지0 "201" 포함 줄: ${p0lines.length}\n`;
+              if (p0lines.length > 0) _debugInfo += `  >> ${p0lines[0]}\n`;
               currentPageTexts = ocrTexts;
-              currentFullText = ocrTexts.join('\n\n').trim();
+              currentFullText = ocrJoined;
               isOcrPdf = true;
             } catch (ocrErr) {
-              console.error('브라우저 OCR 실패:', ocrErr);
+              _debugInfo += `브라우저 OCR 에러: ${ocrErr.message}\n`;
             }
           }
 
           ocrOverlay.style.display = 'none';
+          alert(_debugInfo);
         }
 
         // Phase 4: 메타 추출 + 결과 표시
