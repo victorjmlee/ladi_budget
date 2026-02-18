@@ -354,24 +354,45 @@
       return (totalChars / pageTexts.length) < 10;
     }
 
-    /** Tesseract.js OCR: PDF 페이지를 고해상도로 렌더링 → 이진화 → OCR */
-    const OCR_SCALE = 4.5;  // 72dpi * 4.5 ≈ 324dpi (300dpi 이상 권장)
+    /** 두 OCR 결과를 Y좌표 기반으로 병합: PSM 3(금액 컬럼) + PSM 4(헤더) */
+    function mergeOcrResults(data3, data4) {
+      const lines3 = (data3.lines || []).map(l => ({ text: l.text.trim(), y: l.bbox.y0 }));
+      const lines4 = (data4.lines || []).map(l => ({ text: l.text.trim(), y: l.bbox.y0 }));
+      // PSM 3 라인을 기본으로 (금액 컬럼 포함)
+      const merged = lines3.filter(l => l.text).map(l => ({ ...l }));
+      // PSM 4에만 있는 라인 추가 (PSM 3에서 누락된 헤더)
+      for (const l4 of lines4) {
+        if (!l4.text) continue;
+        const hasMatch = merged.some(m => Math.abs(m.y - l4.y) < 30);
+        if (!hasMatch) {
+          merged.push(l4);
+        }
+      }
+      merged.sort((a, b) => a.y - b.y);
+      return merged.map(l => l.text).join('\n');
+    }
+
+    /** Tesseract.js 듀얼 패스 OCR: PSM 3(금액) + PSM 4(헤더) 병렬 실행 후 병합 */
+    const OCR_SCALE = 4.5;  // 72dpi * 4.5 ≈ 324dpi
     async function ocrPdfPages(pdfDoc, numPages, onProgress) {
-      const worker = await Tesseract.createWorker('kor', 1, {
-        logger: (m) => {
-          if (m.status === 'recognizing text' && typeof m.progress === 'number') {
-            if (typeof onProgress._currentPage === 'number') {
-              onProgress(onProgress._currentPage, numPages, m.progress);
+      // 두 워커 병렬 생성: PSM 3 (기본=금액 인식) + PSM 4 (헤더 인식)
+      const [worker3, worker4] = await Promise.all([
+        Tesseract.createWorker('kor', 1, {
+          logger: (m) => {
+            if (m.status === 'recognizing text' && typeof m.progress === 'number') {
+              if (typeof onProgress._currentPage === 'number') {
+                onProgress(onProgress._currentPage, numPages, m.progress);
+              }
             }
           }
-        }
-      });
-      // PSM 6: 균일 텍스트 블록 → 표 형식 예산서에 적합 (헤더+금액 컬럼 모두 인식)
-      // preserve_interword_spaces: 열 구분 공백 보존
-      await worker.setParameters({
-        tessedit_pageseg_mode: '6',
-        preserve_interword_spaces: '1'
-      });
+        }),
+        Tesseract.createWorker('kor', 1, {})
+      ]);
+      await Promise.all([
+        worker3.setParameters({ tessedit_pageseg_mode: '3', preserve_interword_spaces: '1' }),
+        worker4.setParameters({ tessedit_pageseg_mode: '4', preserve_interword_spaces: '1' })
+      ]);
+
       const pageTexts = [];
       const rawTexts = [];
       for (let i = 0; i < numPages; i++) {
@@ -385,12 +406,16 @@
           canvas.height = viewport.height;
           const ctx = canvas.getContext('2d');
           await page.render({ canvasContext: ctx, viewport: viewport }).promise;
-          // 그레이스케일 + 대비 강화 (배경색 헤더 텍스트 보존)
           preprocessCanvas(canvas);
-          const result = await worker.recognize(canvas);
-          const rawText = result.data.text || '';
-          rawTexts.push(rawText);
-          pageTexts.push(normalizeOcrText(rawText));
+          // 병렬 OCR: PSM 3 + PSM 4 동시 실행
+          const [res3, res4] = await Promise.all([
+            worker3.recognize(canvas),
+            worker4.recognize(canvas)
+          ]);
+          // Y좌표 기반 병합: PSM 3(금액) + PSM 4(헤더)
+          const mergedText = mergeOcrResults(res3.data, res4.data);
+          rawTexts.push(mergedText);
+          pageTexts.push(normalizeOcrText(mergedText));
           canvas.width = 0;
           canvas.height = 0;
         } catch (err) {
@@ -399,7 +424,7 @@
           pageTexts.push('');
         }
       }
-      await worker.terminate();
+      await Promise.all([worker3.terminate(), worker4.terminate()]);
       return { pageTexts, rawTexts };
     }
 
