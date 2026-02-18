@@ -346,11 +346,11 @@
         }
       });
       const pageTexts = [];
+      const rawTexts = [];  // 디버그용 원본
       for (let i = 0; i < numPages; i++) {
         onProgress._currentPage = i;
         onProgress(i, numPages, 0);
         try {
-          // OCR 전용 고해상도 캔버스 (화면에 표시하지 않음)
           const page = await pdfDoc.getPage(i + 1);
           const viewport = page.getViewport({ scale: OCR_SCALE });
           const canvas = document.createElement('canvas');
@@ -360,21 +360,18 @@
           await page.render({ canvasContext: ctx, viewport: viewport }).promise;
           const result = await worker.recognize(canvas);
           const rawText = result.data.text || '';
-          if (i < 3) {
-            console.log(`=== OCR 원본 (페이지 ${i + 1}, normalizeOcrText 전) ===`);
-            console.log(rawText);
-          }
+          rawTexts.push(rawText);
           pageTexts.push(normalizeOcrText(rawText));
-          // 메모리 해제
           canvas.width = 0;
           canvas.height = 0;
         } catch (err) {
           console.error(`OCR 페이지 ${i + 1} 실패:`, err);
+          rawTexts.push('');
           pageTexts.push('');
         }
       }
       await worker.terminate();
-      return pageTexts;
+      return { pageTexts, rawTexts };
     }
 
     /** 엑셀 1행: 부서·정책·단위·세부사업·예산액·전년도예산액·비교증감 (편성목은 D열에 행으로만) */
@@ -1231,16 +1228,25 @@
               ocrText.textContent = `OCR 처리 중... (${pageIdx + 1}/${total} 페이지)`;
               ocrBar.style.width = pct.toFixed(1) + '%';
             };
-            const ocrTexts = await ocrPdfPages(pdf, numPages, ocrProgress);
-            currentPageTexts = ocrTexts;
-            currentFullText = ocrTexts.join('\n\n').trim();
+            const ocrResult = await ocrPdfPages(pdf, numPages, ocrProgress);
+            currentPageTexts = ocrResult.pageTexts;
+            currentFullText = ocrResult.pageTexts.join('\n\n').trim();
             isOcrPdf = true;
-            // 디버그: OCR 결과 확인 (첫 3페이지)
-            console.log('=== OCR 결과 (normalizeOcrText 적용 후) ===');
-            for (let di = 0; di < Math.min(3, ocrTexts.length); di++) {
-              console.log(`--- 페이지 ${di + 1} ---`);
-              console.log(ocrTexts[di]);
-            }
+            // 디버그: OCR 원본+정규화 텍스트를 txt 파일로 다운로드
+            try {
+              let debugTxt = '';
+              for (let di = 0; di < Math.min(5, ocrResult.rawTexts.length); di++) {
+                debugTxt += `===== 페이지 ${di + 1} 원본 (normalizeOcrText 전) =====\n`;
+                debugTxt += ocrResult.rawTexts[di] + '\n\n';
+                debugTxt += `===== 페이지 ${di + 1} 정규화 후 =====\n`;
+                debugTxt += ocrResult.pageTexts[di] + '\n\n';
+              }
+              const blob = new Blob([debugTxt], { type: 'text/plain; charset=utf-8' });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url; a.download = 'ocr_debug.txt'; a.click();
+              URL.revokeObjectURL(url);
+            } catch(e) { console.error('디버그 파일 생성 실패', e); }
           } catch (ocrErr) {
             console.error('OCR 실패:', ocrErr);
             alert('OCR 처리에 실패했습니다: ' + ocrErr.message);
