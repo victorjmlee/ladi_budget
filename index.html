@@ -366,10 +366,10 @@
           }
         }
       });
-      // PSM 4: 단일 컬럼+다양한 크기 텍스트 → 섹션 헤더 누락 방지
+      // PSM 6: 균일 텍스트 블록 → 표 형식 예산서에 적합 (헤더+금액 컬럼 모두 인식)
       // preserve_interword_spaces: 열 구분 공백 보존
       await worker.setParameters({
-        tessedit_pageseg_mode: '4',
+        tessedit_pageseg_mode: '6',
         preserve_interword_spaces: '1'
       });
       const pageTexts = [];
