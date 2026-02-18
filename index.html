@@ -1229,37 +1229,52 @@
           const ocrText = document.getElementById('ocr-progress-text');
           const ocrBar = document.getElementById('ocr-progress-bar');
           ocrOverlay.style.display = 'flex';
-          let ocrDone = false;
+          ocrBar.style.width = '0%';
+          let ocrSuccess = false;
 
-          // 브라우저 Tesseract.js OCR (서버 업로드 없이 브라우저에서 직접 처리)
+          // 1차: 서버 OCR 시도 (로컬 서버에 tesseract가 있으면 고품질 결과)
+          ocrText.textContent = '서버 OCR 변환 중...';
+          ocrBar.style.width = '30%';
           try {
-            const ocrProgress = function(pageIdx, total, workerProg) {
-              const pct = ((pageIdx + workerProg) / total) * 100;
-              ocrText.textContent = `OCR 처리 중... (${pageIdx + 1}/${total} 페이지)`;
-              ocrBar.style.width = pct.toFixed(1) + '%';
-            };
-            const ocrResult = await ocrPdfPages(pdf, numPages, ocrProgress);
-            currentPageTexts = ocrResult.pageTexts;
-            currentFullText = ocrResult.pageTexts.join('\n\n').trim();
-            isOcrPdf = true;
-            // 디버그: OCR 원본+정규화 텍스트를 txt 파일로 다운로드
-            try {
-              let debugTxt = '';
-              for (let di = 0; di < Math.min(5, ocrResult.rawTexts.length); di++) {
-                debugTxt += `===== 페이지 ${di + 1} 원본 (normalizeOcrText 전) =====\n`;
-                debugTxt += ocrResult.rawTexts[di] + '\n\n';
-                debugTxt += `===== 페이지 ${di + 1} 정규화 후 =====\n`;
-                debugTxt += ocrResult.pageTexts[di] + '\n\n';
+            const form = new FormData();
+            form.append('pdf', file);
+            const res = await fetch('/api/ocr-extract', { method: 'POST', body: form });
+            if (res.ok) {
+              const data = await res.json();
+              if (data.page_texts && data.page_texts.length > 0) {
+                const joined = data.page_texts.join('');
+                if (joined.length > 20) {
+                  currentPageTexts = data.page_texts;
+                  currentFullText = data.page_texts.join('\n\n').trim();
+                  isOcrPdf = true;
+                  ocrSuccess = true;
+                  ocrBar.style.width = '100%';
+                  ocrText.textContent = '서버 OCR 완료!';
+                }
               }
-              const blob = new Blob([debugTxt], { type: 'text/plain; charset=utf-8' });
-              const url = URL.createObjectURL(blob);
-              const a = document.createElement('a');
-              a.href = url; a.download = 'ocr_debug.txt'; a.click();
-              URL.revokeObjectURL(url);
-            } catch(e) { console.error('디버그 파일 생성 실패', e); }
-          } catch (ocrErr) {
-            console.error('OCR 실패:', ocrErr);
-            alert('OCR 처리에 실패했습니다: ' + ocrErr.message);
+            }
+          } catch (e) {
+            console.log('서버 OCR 불가:', e.message);
+          }
+
+          // 2차: 서버 OCR 실패 시 브라우저 Tesseract.js 폴백
+          if (!ocrSuccess) {
+            ocrText.textContent = '브라우저 OCR 처리 중... (품질 제한적)';
+            ocrBar.style.width = '0%';
+            try {
+              const ocrProgress = function(pageIdx, total, workerProg) {
+                const pct = ((pageIdx + workerProg) / total) * 100;
+                ocrText.textContent = `브라우저 OCR 중... (${pageIdx + 1}/${total} 페이지)`;
+                ocrBar.style.width = pct.toFixed(1) + '%';
+              };
+              const ocrResult = await ocrPdfPages(pdf, numPages, ocrProgress);
+              currentPageTexts = ocrResult.pageTexts;
+              currentFullText = ocrResult.pageTexts.join('\n\n').trim();
+              isOcrPdf = true;
+            } catch (ocrErr) {
+              console.error('브라우저 OCR 실패:', ocrErr);
+              alert('OCR 처리에 실패했습니다: ' + ocrErr.message);
+            }
           }
 
           ocrOverlay.style.display = 'none';

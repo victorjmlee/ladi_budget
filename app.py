@@ -50,16 +50,19 @@ def static_file(path):
 
 @app.route("/api/ocr-extract", methods=["POST"])
 def ocr_extract():
-    """이미지 PDF를 pytesseract로 OCR하여 페이지별 텍스트 반환."""
+    """이미지 PDF를 pytesseract(CLI tesseract)로 OCR하여 페이지별 텍스트 반환."""
+    # tesseract 바이너리 확인
+    import shutil
+    from pdf_extract import HAS_PYTESSERACT
+    if not HAS_PYTESSERACT or not shutil.which("tesseract"):
+        return {"error": "tesseract 미설치 (로컬 서버 전용)"}, 501
+
     if "pdf" not in request.files:
         return {"error": "PDF 파일이 없습니다."}, 400
     file = request.files["pdf"]
     if not file or not file.filename or not file.filename.lower().endswith(".pdf"):
         return {"error": "PDF 파일을 선택하세요."}, 400
     try:
-        from pdf_extract import HAS_PYTESSERACT
-        if not HAS_PYTESSERACT:
-            return {"error": "pytesseract 미설치"}, 501
         with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
             file.save(tmp.name)
             tmp_path = tmp.name
