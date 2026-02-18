@@ -328,37 +328,18 @@
       }).join('\n');
     }
 
-    /** Otsu 이진화: 배경 노이즈 제거, 텍스트를 순수 흑백으로 변환 (OCR 정확도 향상) */
-    function binarizeCanvas(canvas) {
+    /** 그레이스케일 + 대비 강화: 배경색 있는 헤더도 텍스트 보존 (전역 이진화보다 안전) */
+    function preprocessCanvas(canvas) {
       const ctx = canvas.getContext('2d');
       const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
       const data = imageData.data;
       const len = canvas.width * canvas.height;
-      // 그레이스케일 변환
-      const gray = new Uint8Array(len);
       for (let i = 0; i < len; i++) {
-        gray[i] = Math.round(0.299 * data[i*4] + 0.587 * data[i*4+1] + 0.114 * data[i*4+2]);
-      }
-      // Otsu 임계값 자동 계산
-      const hist = new Array(256).fill(0);
-      for (let i = 0; i < len; i++) hist[gray[i]]++;
-      let sum = 0;
-      for (let i = 0; i < 256; i++) sum += i * hist[i];
-      let sumB = 0, wB = 0, maxVar = 0, threshold = 128;
-      for (let i = 0; i < 256; i++) {
-        wB += hist[i];
-        if (wB === 0) continue;
-        const wF = len - wB;
-        if (wF === 0) break;
-        sumB += i * hist[i];
-        const diff = sumB / wB - (sum - sumB) / wF;
-        const variance = wB * wF * diff * diff;
-        if (variance > maxVar) { maxVar = variance; threshold = i; }
-      }
-      // 이진화 적용
-      for (let i = 0; i < len; i++) {
-        const val = gray[i] > threshold ? 255 : 0;
-        data[i*4] = val; data[i*4+1] = val; data[i*4+2] = val;
+        // 그레이스케일 변환
+        let g = Math.round(0.299 * data[i*4] + 0.587 * data[i*4+1] + 0.114 * data[i*4+2]);
+        // 대비 강화: 어두운 건 더 어둡게, 밝은 건 더 밝게 (시그모이드 커브)
+        g = Math.round(255 / (1 + Math.exp(-0.05 * (g - 128))));
+        data[i*4] = g; data[i*4+1] = g; data[i*4+2] = g;
       }
       ctx.putImageData(imageData, 0, 0);
     }
@@ -385,8 +366,12 @@
           }
         }
       });
-      // 단어 간 공백 보존 (예산서 열 구분에 중요)
-      await worker.setParameters({ preserve_interword_spaces: '1' });
+      // PSM 4: 단일 컬럼+다양한 크기 텍스트 → 섹션 헤더 누락 방지
+      // preserve_interword_spaces: 열 구분 공백 보존
+      await worker.setParameters({
+        tessedit_pageseg_mode: '4',
+        preserve_interword_spaces: '1'
+      });
       const pageTexts = [];
       const rawTexts = [];
       for (let i = 0; i < numPages; i++) {
@@ -400,8 +385,8 @@
           canvas.height = viewport.height;
           const ctx = canvas.getContext('2d');
           await page.render({ canvasContext: ctx, viewport: viewport }).promise;
-          // 이진화: 배경 노이즈 제거 → OCR 정확도 향상
-          binarizeCanvas(canvas);
+          // 그레이스케일 + 대비 강화 (배경색 헤더 텍스트 보존)
+          preprocessCanvas(canvas);
           const result = await worker.recognize(canvas);
           const rawText = result.data.text || '';
           rawTexts.push(rawText);
