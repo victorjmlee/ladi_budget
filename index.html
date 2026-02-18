@@ -7,6 +7,7 @@
   <title>LADI 예산서</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <style>
     :root {
       --bg: #0f1419;
@@ -78,6 +79,7 @@
       color: var(--muted);
     }
     .pdf-viewer-wrap {
+      position: relative;
       flex: 1;
       min-height: 0;
       display: flex;
@@ -186,6 +188,12 @@
       <div class="pdf-viewer-wrap">
         <div class="pdf-viewer-placeholder" id="pdf-placeholder">PDF를 업로드하면 여기에 문서가 표시됩니다.</div>
         <div id="pdf-canvas-container" class="pdf-canvas-container" style="display:none;"></div>
+        <div id="ocr-progress" style="display:none; position:absolute; top:0; left:0; right:0; bottom:0; background:rgba(15,20,25,0.85); z-index:10; align-items:center; justify-content:center; flex-direction:column; color:var(--text); font-size:0.9rem;">
+          <div id="ocr-progress-text">OCR 처리 중...</div>
+          <div style="width:60%; max-width:300px; height:6px; background:var(--border); border-radius:3px; margin-top:0.75rem; overflow:hidden;">
+            <div id="ocr-progress-bar" style="width:0%; height:100%; background:var(--accent); border-radius:3px; transition:width 0.3s;"></div>
+          </div>
+        </div>
       </div>
     </div>
     <div class="panel">
@@ -230,6 +238,7 @@
     let currentExportPageIndex = [];
     let currentCodeLines = [];      // 코드 검색 매칭 줄
     let currentKwLines = [];        // 키워드 검색 매칭 줄
+    let isOcrPdf = false;           // 이미지 PDF OCR 여부
 
     function parseKeywords(raw) {
       return raw
@@ -285,6 +294,43 @@
       s = s.replace(/ /g, '');
       s = s.split(NORMALIZE_PLACEHOLDER).join('  ');
       return s.replace(/,\s+/g, ',');
+    }
+
+    /** 이미지 기반 PDF 감지: 페이지당 유의미 문자 평균 10자 미만이면 이미지 PDF */
+    function isImageBasedPdf(pageTexts) {
+      if (!pageTexts || pageTexts.length === 0) return false;
+      let totalChars = 0;
+      for (const pt of pageTexts) {
+        totalChars += (pt || '').replace(/[\s\d,.\-△▣■○ㅇ:：()\[\]]/g, '').length;
+      }
+      return (totalChars / pageTexts.length) < 10;
+    }
+
+    /** Tesseract.js OCR: 렌더링된 캔버스를 순차 OCR하여 페이지별 텍스트 반환 */
+    async function ocrCanvasPages(canvases, onProgress) {
+      const worker = await Tesseract.createWorker('kor', 1, {
+        logger: (m) => {
+          if (m.status === 'recognizing text' && typeof m.progress === 'number') {
+            if (typeof onProgress._currentPage === 'number') {
+              onProgress(onProgress._currentPage, canvases.length, m.progress);
+            }
+          }
+        }
+      });
+      const pageTexts = [];
+      for (let i = 0; i < canvases.length; i++) {
+        onProgress._currentPage = i;
+        onProgress(i, canvases.length, 0);
+        try {
+          const result = await worker.recognize(canvases[i]);
+          pageTexts.push(normalizeExtractedText(result.data.text || ''));
+        } catch (err) {
+          console.error(`OCR 페이지 ${i + 1} 실패:`, err);
+          pageTexts.push('');
+        }
+      }
+      await worker.terminate();
+      return pageTexts;
     }
 
     /** 엑셀 1행: 부서·정책·단위·세부사업·예산액·전년도예산액·비교증감 (편성목은 D열에 행으로만) */
@@ -1034,6 +1080,7 @@
     /** 하이라이트 레이어만 그리기 (검색 결과 변경 시) */
     async function drawPdfHighlights() {
       if (!currentPdfDoc || !pdfCanvasContainer.children.length) return;
+      if (isOcrPdf) return;
       const numPages = currentPdfDoc.numPages;
       for (let pageIndex = 0; pageIndex < numPages; pageIndex++) {
         const wrap = pdfCanvasContainer.querySelector(`[data-page-index="${pageIndex}"]`);
@@ -1091,6 +1138,8 @@
         const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
         currentPdfDoc = pdf;
         const numPages = pdf.numPages;
+
+        // Phase 1: PDF.js 텍스트 추출
         const pageTexts = [];
         for (let i = 1; i <= numPages; i++) {
           const page = await pdf.getPage(i);
@@ -1100,8 +1149,8 @@
         }
         currentPageTexts = pageTexts;
         currentFullText = pageTexts.join('\n\n').trim();
-        currentPdfMeta = extractPdfMeta(currentFullText);
-        currentPdfFileName = file.name || '';
+
+        // Phase 2: 캔버스 렌더링 (OCR에 필요하므로 먼저 실행)
         for (let i = 0; i < numPages; i++) {
           const page = await pdf.getPage(i + 1);
           const viewport = page.getViewport({ scale: PDF_RENDER_SCALE });
@@ -1119,11 +1168,39 @@
           wrap.appendChild(highlightCanvas);
           pdfCanvasContainer.appendChild(wrap);
           const ctx = mainCanvas.getContext('2d');
-          await page.render({
-            canvasContext: ctx,
-            viewport: viewport,
-          }).promise;
+          await page.render({ canvasContext: ctx, viewport: viewport }).promise;
         }
+
+        // Phase 3: 이미지 PDF 감지 → OCR
+        isOcrPdf = false;
+        if (isImageBasedPdf(pageTexts)) {
+          const ocrOverlay = document.getElementById('ocr-progress');
+          const ocrText = document.getElementById('ocr-progress-text');
+          const ocrBar = document.getElementById('ocr-progress-bar');
+          ocrOverlay.style.display = 'flex';
+          try {
+            const canvases = [];
+            pdfCanvasContainer.querySelectorAll('.pdf-page-wrap canvas:not(.highlight-layer)')
+              .forEach(c => canvases.push(c));
+            const ocrProgress = function(pageIdx, total, workerProg) {
+              const pct = ((pageIdx + workerProg) / total) * 100;
+              ocrText.textContent = `OCR 처리 중... (${pageIdx + 1}/${total} 페이지)`;
+              ocrBar.style.width = pct.toFixed(1) + '%';
+            };
+            const ocrTexts = await ocrCanvasPages(canvases, ocrProgress);
+            currentPageTexts = ocrTexts;
+            currentFullText = ocrTexts.join('\n\n').trim();
+            isOcrPdf = true;
+          } catch (ocrErr) {
+            console.error('OCR 실패:', ocrErr);
+          } finally {
+            ocrOverlay.style.display = 'none';
+          }
+        }
+
+        // Phase 4: 메타 추출 + 결과 표시
+        currentPdfMeta = extractPdfMeta(currentFullText);
+        currentPdfFileName = file.name || '';
         renderResult();
         drawPdfHighlights();
       } catch (err) {
@@ -1155,6 +1232,9 @@
           form.append('pdf', currentPdfFile);
           form.append('codes', codesRaw);
           form.append('keywords', keywordsRaw);
+          if (isOcrPdf && currentPageTexts.length > 0) {
+            form.append('page_texts', JSON.stringify(currentPageTexts));
+          }
           const res = await fetch('/api/extract-excel', { method: 'POST', body: form });
           if (res.ok) {
             const blob = await res.blob();

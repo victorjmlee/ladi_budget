@@ -5,6 +5,7 @@
 실행: python app.py  →  http://localhost:3580
 """
 import io
+import json
 import os
 import sys
 import tempfile
@@ -66,22 +67,37 @@ def extract_excel():
         return {"error": "코드(201, 207) 또는 키워드를 입력하세요."}, 400
 
     try:
-        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
-            file.save(tmp.name)
-            tmp_path = tmp.name
-        try:
-            page_texts = extract_text_by_page(tmp_path)
-            code_results = extract_by_codes(page_texts, codes) if codes else []
-            kw_results = extract_by_keywords(page_texts, kw_list) if kw_list else []
-            if not code_results and not kw_results:
-                return {"error": "매칭되는 줄이 없습니다."}, 400
-            code_aoa = build_excel_aoa(code_results, page_texts) if code_results else None
-            kw_aoa = build_excel_aoa(kw_results, page_texts) if kw_results else None
-        finally:
+        # 클라이언트가 OCR 텍스트를 보냈는지 확인 (이미지 PDF)
+        raw_page_texts = (request.form.get("page_texts") or "").strip()
+        client_page_texts = None
+        if raw_page_texts:
             try:
-                os.unlink(tmp_path)
-            except Exception:
+                parsed = json.loads(raw_page_texts)
+                if isinstance(parsed, list) and parsed and all(isinstance(s, str) for s in parsed):
+                    client_page_texts = parsed
+            except (json.JSONDecodeError, TypeError):
                 pass
+
+        if client_page_texts:
+            page_texts = client_page_texts
+        else:
+            with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+                file.save(tmp.name)
+                tmp_path = tmp.name
+            try:
+                page_texts = extract_text_by_page(tmp_path)
+            finally:
+                try:
+                    os.unlink(tmp_path)
+                except Exception:
+                    pass
+
+        code_results = extract_by_codes(page_texts, codes) if codes else []
+        kw_results = extract_by_keywords(page_texts, kw_list) if kw_list else []
+        if not code_results and not kw_results:
+            return {"error": "매칭되는 줄이 없습니다."}, 400
+        code_aoa = build_excel_aoa(code_results, page_texts) if code_results else None
+        kw_aoa = build_excel_aoa(kw_results, page_texts) if kw_results else None
 
         import openpyxl
         from openpyxl.styles import Font, PatternFill
