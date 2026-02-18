@@ -11,6 +11,14 @@ try:
 except ImportError:
     fitz = None
 
+try:
+    import pytesseract
+    from PIL import Image
+    import io as _io
+    HAS_PYTESSERACT = True
+except ImportError:
+    HAS_PYTESSERACT = False
+
 from parser import (
     normalize_extracted_text,
     is_3digit_start_line,
@@ -53,8 +61,26 @@ def _page_text_from_blocks(page) -> str:
     return "\n".join(lines)
 
 
+def _ocr_page_pytesseract(page, dpi: int = 300) -> str:
+    """pytesseract로 페이지 OCR. tesseract CLI 사용으로 정확도 높음."""
+    if not HAS_PYTESSERACT:
+        return ""
+    try:
+        pix = page.get_pixmap(dpi=dpi)
+        img = Image.open(_io.BytesIO(pix.tobytes("png")))
+        raw = pytesseract.image_to_string(img, lang="kor")
+        return "\n".join(
+            normalize_extracted_text(line)
+            for line in raw.splitlines()
+            if line.strip()
+        )
+    except Exception:
+        return ""
+
+
 def extract_text_by_page(pdf_path: str) -> List[str]:
-    """PDF 경로에서 페이지별로 텍스트 추출. 블록→줄 단위 유지 후 줄마다 정규화."""
+    """PDF 경로에서 페이지별로 텍스트 추출. 블록→줄 단위 유지 후 줄마다 정규화.
+    텍스트가 없는 이미지 PDF의 경우 pytesseract OCR로 폴백."""
     if not fitz:
         raise RuntimeError("pymupdf 필요: pip install pymupdf")
     path = Path(pdf_path)
@@ -69,6 +95,8 @@ def extract_text_by_page(pdf_path: str) -> List[str]:
             if not text.strip():
                 text = page.get_text("text")
                 text = normalize_extracted_text(text)
+            if not text.strip():
+                text = _ocr_page_pytesseract(page)
             pages.append(text)
     finally:
         doc.close()

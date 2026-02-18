@@ -48,6 +48,33 @@ def static_file(path):
     return "", 404
 
 
+@app.route("/api/ocr-extract", methods=["POST"])
+def ocr_extract():
+    """이미지 PDF를 pytesseract로 OCR하여 페이지별 텍스트 반환."""
+    if "pdf" not in request.files:
+        return {"error": "PDF 파일이 없습니다."}, 400
+    file = request.files["pdf"]
+    if not file or not file.filename or not file.filename.lower().endswith(".pdf"):
+        return {"error": "PDF 파일을 선택하세요."}, 400
+    try:
+        from pdf_extract import HAS_PYTESSERACT
+        if not HAS_PYTESSERACT:
+            return {"error": "pytesseract 미설치"}, 501
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+            file.save(tmp.name)
+            tmp_path = tmp.name
+        try:
+            page_texts = extract_text_by_page(tmp_path)
+            return {"page_texts": page_texts}
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
+    except Exception as e:
+        return {"error": str(e)}, 500
+
+
 @app.route("/api/extract-excel", methods=["POST"])
 def extract_excel():
     if "pdf" not in request.files:

@@ -296,19 +296,27 @@
       return s.replace(/,\s+/g, ',');
     }
 
-    /** OCR 텍스트 정규화: 한글 공백 제거 + 콘텐츠 타입 전환점에 열 구분(2칸) 삽입 */
+    /** OCR 텍스트 후처리: 한글↔숫자 오인식 보정 + 열 구분 복원 */
     function normalizeOcrText(text) {
       if (!text) return text;
       return text.split('\n').map(line => {
         if (!line.trim()) return '';
+        let s = line;
+        // 0. OCR 공통 오인식 보정 (줄 시작부: 예산 코드 영역)
+        //    으→20 (한글 '으' 모양이 '20'과 유사), ㅇ→0, ()→0
+        s = s.replace(/^(\s*)으(\d)/g, '$120$2');
+        s = s.replace(/^(\s*)\(?\)(\d)/g, '$10$2');
+        s = s.replace(/^(\s*)ㅇ(\d)/g, '$10$2');
+        // 코드.한글 → 코드 한글 (마침표를 공백으로)
+        s = s.replace(/^(\s*\d{2,3})\.([가-힣(])/g, '$1 $2');
         // 1. 한글 문자 사이 공백 제거
-        let s = collapseSpacesInKorean(line);
-        // 2. 쉼표 뒤 공백 제거 (금액 보호: "554, 497" → "554,497")
+        s = collapseSpacesInKorean(s);
+        // 2. 쉼표 뒤 공백 제거 (금액 보호)
         s = s.replace(/,\s+/g, ',');
         // 3. 콘텐츠 타입 전환점에 열 구분(2칸 공백) 삽입
-        s = s.replace(/([가-힣)）\]]) +(\d)/g, '$1  $2');   // 한글→숫자
-        s = s.replace(/(\d) +([가-힣(（\[])/g, '$1  $2');    // 숫자→한글
-        s = s.replace(/(\d) +(?=△?\d)/g, '$1  ');            // 숫자→숫자 (열 경계)
+        s = s.replace(/([가-힣)）\]]) +(\d)/g, '$1  $2');
+        s = s.replace(/(\d) +([가-힣(（\[])/g, '$1  $2');
+        s = s.replace(/(\d) +(?=△?\d)/g, '$1  ');
         // 4. 3칸 이상 공백은 2칸으로 통일
         s = s.replace(/ {3,}/g, '  ');
         return s;
@@ -1202,28 +1210,53 @@
           await page.render({ canvasContext: ctx, viewport: viewport }).promise;
         }
 
-        // Phase 3: 이미지 PDF 감지 → OCR
+        // Phase 3: 이미지 PDF 감지 → 서버 OCR 우선, 실패 시 브라우저 Tesseract.js
         isOcrPdf = false;
         if (isImageBasedPdf(pageTexts)) {
           const ocrOverlay = document.getElementById('ocr-progress');
           const ocrText = document.getElementById('ocr-progress-text');
           const ocrBar = document.getElementById('ocr-progress-bar');
           ocrOverlay.style.display = 'flex';
+          let ocrDone = false;
+
+          // 서버 OCR 시도 (pytesseract 기반 - 정확도 높음)
           try {
-            const ocrProgress = function(pageIdx, total, workerProg) {
-              const pct = ((pageIdx + workerProg) / total) * 100;
-              ocrText.textContent = `OCR 처리 중... (${pageIdx + 1}/${total} 페이지)`;
-              ocrBar.style.width = pct.toFixed(1) + '%';
-            };
-            const ocrTexts = await ocrPdfPages(pdf, numPages, ocrProgress);
-            currentPageTexts = ocrTexts;
-            currentFullText = ocrTexts.join('\n\n').trim();
-            isOcrPdf = true;
-          } catch (ocrErr) {
-            console.error('OCR 실패:', ocrErr);
-          } finally {
-            ocrOverlay.style.display = 'none';
+            ocrText.textContent = 'OCR 처리 중... (서버)';
+            ocrBar.style.width = '50%';
+            const form = new FormData();
+            form.append('pdf', file);
+            const res = await fetch('/api/ocr-extract', { method: 'POST', body: form });
+            if (res.ok) {
+              const data = await res.json();
+              if (data.page_texts && data.page_texts.length > 0) {
+                currentPageTexts = data.page_texts;
+                currentFullText = data.page_texts.join('\n\n').trim();
+                isOcrPdf = true;
+                ocrDone = true;
+              }
+            }
+          } catch (e) {
+            console.warn('서버 OCR 실패, 브라우저 OCR로 진행:', e);
           }
+
+          // 서버 OCR 실패 시 브라우저 Tesseract.js fallback
+          if (!ocrDone) {
+            try {
+              const ocrProgress = function(pageIdx, total, workerProg) {
+                const pct = ((pageIdx + workerProg) / total) * 100;
+                ocrText.textContent = `OCR 처리 중... (${pageIdx + 1}/${total} 페이지)`;
+                ocrBar.style.width = pct.toFixed(1) + '%';
+              };
+              const ocrTexts = await ocrPdfPages(pdf, numPages, ocrProgress);
+              currentPageTexts = ocrTexts;
+              currentFullText = ocrTexts.join('\n\n').trim();
+              isOcrPdf = true;
+            } catch (ocrErr) {
+              console.error('브라우저 OCR 실패:', ocrErr);
+            }
+          }
+
+          ocrOverlay.style.display = 'none';
         }
 
         // Phase 4: 메타 추출 + 결과 표시
