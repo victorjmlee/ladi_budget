@@ -1228,7 +1228,8 @@
             const res = await fetch('/api/ocr-extract', { method: 'POST', body: form });
             if (res.ok) {
               const data = await res.json();
-              if (data.page_texts && data.page_texts.length > 0) {
+              const joined = (data.page_texts || []).join('\n').trim();
+              if (joined.length > 20) {
                 currentPageTexts = data.page_texts;
                 currentFullText = data.page_texts.join('\n\n').trim();
                 isOcrPdf = true;
