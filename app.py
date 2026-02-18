@@ -50,12 +50,12 @@ def static_file(path):
 
 @app.route("/api/ocr-extract", methods=["POST"])
 def ocr_extract():
-    """이미지 PDF를 pytesseract(CLI tesseract)로 OCR하여 페이지별 텍스트 반환."""
-    # tesseract 바이너리 확인
+    """이미지 PDF를 ocrmypdf → pdftotext -layout으로 고품질 텍스트 추출."""
     import shutil
-    from pdf_extract import HAS_PYTESSERACT
-    if not HAS_PYTESSERACT or not shutil.which("tesseract"):
-        return {"error": "tesseract 미설치 (로컬 서버 전용)"}, 501
+    import subprocess
+    import re as _re
+    if not shutil.which("ocrmypdf") or not shutil.which("pdftotext"):
+        return {"error": "ocrmypdf/pdftotext 미설치 (로컬 서버 전용)"}, 501
 
     if "pdf" not in request.files:
         return {"error": "PDF 파일이 없습니다."}, 400
@@ -63,17 +63,61 @@ def ocr_extract():
     if not file or not file.filename or not file.filename.lower().endswith(".pdf"):
         return {"error": "PDF 파일을 선택하세요."}, 400
     try:
-        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
-            file.save(tmp.name)
-            tmp_path = tmp.name
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp_in:
+            file.save(tmp_in.name)
+            input_path = tmp_in.name
+        output_path = input_path + "_ocr.pdf"
         try:
-            page_texts = extract_text_by_page(tmp_path)
+            # 1단계: ocrmypdf (tesseract OCR → 텍스트 레이어 PDF)
+            # 주의: --deskew --clean은 일부 페이지를 왜곡시킬 수 있으므로 사용 안 함
+            result = subprocess.run(
+                ["ocrmypdf", "-l", "kor", "--force-ocr",
+                 input_path, output_path],
+                capture_output=True, text=True, timeout=300
+            )
+            if result.returncode != 0:
+                return {"error": f"ocrmypdf 실패: {result.stderr[:500]}"}, 500
+
+            # 2단계: pdftotext -layout으로 페이지별 텍스트 추출
+            result2 = subprocess.run(
+                ["pdftotext", "-layout", output_path, "-"],
+                capture_output=True, text=True, timeout=60
+            )
+            if result2.returncode != 0:
+                return {"error": "pdftotext 실패"}, 500
+
+            raw_text = result2.stdout
+            # 페이지 구분 (form feed \x0c)
+            raw_pages = raw_text.split("\x0c")
+            if raw_pages and not raw_pages[-1].strip():
+                raw_pages = raw_pages[:-1]
+
+            # 한글 문자 사이 불필요 공백 제거 + 줄별 정규화
+            def _normalize_ocr_line(line):
+                s = line.rstrip()
+                if not s.strip():
+                    return ""
+                # 한글 사이 공백 1개 제거: "일 반 운영비" → "일반운영비"
+                s = _re.sub(r"([가-힣])\s([가-힣])", r"\1\2", s)
+                s = _re.sub(r"([가-힣])\s([가-힣])", r"\1\2", s)  # 2회 적용
+                s = _re.sub(r"([가-힣])\s([가-힣])", r"\1\2", s)  # 3회 적용
+                return s
+
+            page_texts = []
+            for page_raw in raw_pages:
+                lines = [_normalize_ocr_line(l) for l in page_raw.splitlines()]
+                lines = [l for l in lines if l.strip()]
+                page_texts.append("\n".join(lines))
+
             return {"page_texts": page_texts}
         finally:
-            try:
-                os.unlink(tmp_path)
-            except Exception:
-                pass
+            for p in (input_path, output_path):
+                try:
+                    os.unlink(p)
+                except Exception:
+                    pass
+    except subprocess.TimeoutExpired:
+        return {"error": "OCR 시간 초과 (5분)"}, 500
     except Exception as e:
         return {"error": str(e)}, 500
 
