@@ -359,7 +359,12 @@
           const ctx = canvas.getContext('2d');
           await page.render({ canvasContext: ctx, viewport: viewport }).promise;
           const result = await worker.recognize(canvas);
-          pageTexts.push(normalizeOcrText(result.data.text || ''));
+          const rawText = result.data.text || '';
+          if (i < 3) {
+            console.log(`=== OCR 원본 (페이지 ${i + 1}, normalizeOcrText 전) ===`);
+            console.log(rawText);
+          }
+          pageTexts.push(normalizeOcrText(rawText));
           // 메모리 해제
           canvas.width = 0;
           canvas.height = 0;
@@ -1230,6 +1235,12 @@
             currentPageTexts = ocrTexts;
             currentFullText = ocrTexts.join('\n\n').trim();
             isOcrPdf = true;
+            // 디버그: OCR 결과 확인 (첫 3페이지)
+            console.log('=== OCR 결과 (normalizeOcrText 적용 후) ===');
+            for (let di = 0; di < Math.min(3, ocrTexts.length); di++) {
+              console.log(`--- 페이지 ${di + 1} ---`);
+              console.log(ocrTexts[di]);
+            }
           } catch (ocrErr) {
             console.error('OCR 실패:', ocrErr);
             alert('OCR 처리에 실패했습니다: ' + ocrErr.message);
