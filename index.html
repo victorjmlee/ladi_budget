@@ -296,6 +296,25 @@
       return s.replace(/,\s+/g, ',');
     }
 
+    /** OCR 텍스트 정규화: 한글 공백 제거 + 콘텐츠 타입 전환점에 열 구분(2칸) 삽입 */
+    function normalizeOcrText(text) {
+      if (!text) return text;
+      return text.split('\n').map(line => {
+        if (!line.trim()) return '';
+        // 1. 한글 문자 사이 공백 제거
+        let s = collapseSpacesInKorean(line);
+        // 2. 쉼표 뒤 공백 제거 (금액 보호: "554, 497" → "554,497")
+        s = s.replace(/,\s+/g, ',');
+        // 3. 콘텐츠 타입 전환점에 열 구분(2칸 공백) 삽입
+        s = s.replace(/([가-힣)）\]]) +(\d)/g, '$1  $2');   // 한글→숫자
+        s = s.replace(/(\d) +([가-힣(（\[])/g, '$1  $2');    // 숫자→한글
+        s = s.replace(/(\d) +(?=△?\d)/g, '$1  ');            // 숫자→숫자 (열 경계)
+        // 4. 3칸 이상 공백은 2칸으로 통일
+        s = s.replace(/ {3,}/g, '  ');
+        return s;
+      }).join('\n');
+    }
+
     /** 이미지 기반 PDF 감지: 페이지당 유의미 문자 평균 10자 미만이면 이미지 PDF */
     function isImageBasedPdf(pageTexts) {
       if (!pageTexts || pageTexts.length === 0) return false;
@@ -323,7 +342,7 @@
         onProgress(i, canvases.length, 0);
         try {
           const result = await worker.recognize(canvases[i]);
-          pageTexts.push(normalizeExtractedText(result.data.text || ''));
+          pageTexts.push(normalizeOcrText(result.data.text || ''));
         } catch (err) {
           console.error(`OCR 페이지 ${i + 1} 실패:`, err);
           pageTexts.push('');
