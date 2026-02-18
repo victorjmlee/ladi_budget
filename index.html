@@ -1219,57 +1219,23 @@
           ocrOverlay.style.display = 'flex';
           let ocrDone = false;
 
-          // 서버 OCR 시도 (pytesseract 기반 - 정확도 높음)
-          let _debugInfo = 'OCR 디버그:\n';
+          // 브라우저 Tesseract.js OCR (서버 업로드 없이 브라우저에서 직접 처리)
           try {
-            ocrText.textContent = 'OCR 처리 중... (서버)';
-            ocrBar.style.width = '50%';
-            const form = new FormData();
-            form.append('pdf', file);
-            const res = await fetch('/api/ocr-extract', { method: 'POST', body: form });
-            _debugInfo += `서버 응답: ${res.status}\n`;
-            if (res.ok) {
-              const data = await res.json();
-              const joined = (data.page_texts || []).join('\n').trim();
-              _debugInfo += `서버 텍스트 길이: ${joined.length}\n`;
-              if (joined.length > 20) {
-                currentPageTexts = data.page_texts;
-                currentFullText = data.page_texts.join('\n\n').trim();
-                isOcrPdf = true;
-                ocrDone = true;
-                _debugInfo += '서버 OCR 성공\n';
-              }
-            }
-          } catch (e) {
-            _debugInfo += `서버 OCR 에러: ${e.message}\n`;
-          }
-
-          // 서버 OCR 실패 시 브라우저 Tesseract.js fallback
-          if (!ocrDone) {
-            _debugInfo += '브라우저 Tesseract.js 시작...\n';
-            try {
-              const ocrProgress = function(pageIdx, total, workerProg) {
-                const pct = ((pageIdx + workerProg) / total) * 100;
-                ocrText.textContent = `OCR 처리 중... (${pageIdx + 1}/${total} 페이지)`;
-                ocrBar.style.width = pct.toFixed(1) + '%';
-              };
-              const ocrTexts = await ocrPdfPages(pdf, numPages, ocrProgress);
-              const ocrJoined = ocrTexts.join('\n').trim();
-              _debugInfo += `브라우저 OCR 텍스트 길이: ${ocrJoined.length}\n`;
-              // 첫 페이지에서 201 포함 줄 확인
-              const p0lines = (ocrTexts[0]||'').split('\n').filter(l => l.includes('201'));
-              _debugInfo += `페이지0 "201" 포함 줄: ${p0lines.length}\n`;
-              if (p0lines.length > 0) _debugInfo += `  >> ${p0lines[0]}\n`;
-              currentPageTexts = ocrTexts;
-              currentFullText = ocrJoined;
-              isOcrPdf = true;
-            } catch (ocrErr) {
-              _debugInfo += `브라우저 OCR 에러: ${ocrErr.message}\n`;
-            }
+            const ocrProgress = function(pageIdx, total, workerProg) {
+              const pct = ((pageIdx + workerProg) / total) * 100;
+              ocrText.textContent = `OCR 처리 중... (${pageIdx + 1}/${total} 페이지)`;
+              ocrBar.style.width = pct.toFixed(1) + '%';
+            };
+            const ocrTexts = await ocrPdfPages(pdf, numPages, ocrProgress);
+            currentPageTexts = ocrTexts;
+            currentFullText = ocrTexts.join('\n\n').trim();
+            isOcrPdf = true;
+          } catch (ocrErr) {
+            console.error('OCR 실패:', ocrErr);
+            alert('OCR 처리에 실패했습니다: ' + ocrErr.message);
           }
 
           ocrOverlay.style.display = 'none';
-          alert(_debugInfo);
         }
 
         // Phase 4: 메타 추출 + 결과 표시
@@ -1303,12 +1269,15 @@
       if (currentPdfFile) {
         try {
           const form = new FormData();
-          form.append('pdf', currentPdfFile);
+          if (isOcrPdf && currentPageTexts.length > 0) {
+            // OCR PDF: 큰 PDF 파일 대신 텍스트만 전송 (Vercel 4.5MB 제한 회피)
+            form.append('page_texts', JSON.stringify(currentPageTexts));
+            form.append('filename', currentPdfFile.name || 'ocr_result.pdf');
+          } else {
+            form.append('pdf', currentPdfFile);
+          }
           form.append('codes', codesRaw);
           form.append('keywords', keywordsRaw);
-          if (isOcrPdf && currentPageTexts.length > 0) {
-            form.append('page_texts', JSON.stringify(currentPageTexts));
-          }
           const res = await fetch('/api/extract-excel', { method: 'POST', body: form });
           if (res.ok) {
             const blob = await res.blob();

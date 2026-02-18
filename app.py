@@ -77,11 +77,6 @@ def ocr_extract():
 
 @app.route("/api/extract-excel", methods=["POST"])
 def extract_excel():
-    if "pdf" not in request.files:
-        return {"error": "PDF 파일이 없습니다."}, 400
-    file = request.files["pdf"]
-    if not file or not file.filename or not file.filename.lower().endswith(".pdf"):
-        return {"error": "PDF 파일을 선택하세요."}, 400
     raw_codes = (request.form.get("codes") or "").strip()
     raw_keywords = (request.form.get("keywords") or "").strip()
     codes = [s for s in parse_keywords(raw_codes) if len(s) == 3 and s.isdigit()]
@@ -105,9 +100,16 @@ def extract_excel():
             except (json.JSONDecodeError, TypeError):
                 pass
 
+        # 파일명 결정 (OCR 모드에서는 filename 필드로 전달)
+        client_filename = (request.form.get("filename") or "").strip()
+
         if client_page_texts:
             page_texts = client_page_texts
-        else:
+            file = None
+        elif "pdf" in request.files:
+            file = request.files["pdf"]
+            if not file or not file.filename or not file.filename.lower().endswith(".pdf"):
+                return {"error": "PDF 파일을 선택하세요."}, 400
             with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
                 file.save(tmp.name)
                 tmp_path = tmp.name
@@ -118,6 +120,8 @@ def extract_excel():
                     os.unlink(tmp_path)
                 except Exception:
                     pass
+        else:
+            return {"error": "PDF 파일 또는 OCR 텍스트가 필요합니다."}, 400
 
         code_results = extract_by_codes(page_texts, codes) if codes else []
         kw_results = extract_by_keywords(page_texts, kw_list) if kw_list else []
@@ -224,7 +228,8 @@ def extract_excel():
         buf = io.BytesIO()
         wb.save(buf)
         buf.seek(0)
-        base_name = Path(file.filename).stem or "검색결과"
+        fname = client_filename or (file.filename if file else "") or "검색결과.pdf"
+        base_name = Path(fname).stem or "검색결과"
         return send_file(
             buf,
             mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
