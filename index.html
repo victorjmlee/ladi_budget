@@ -325,24 +325,36 @@
       return (totalChars / pageTexts.length) < 10;
     }
 
-    /** Tesseract.js OCR: 렌더링된 캔버스를 순차 OCR하여 페이지별 텍스트 반환 */
-    async function ocrCanvasPages(canvases, onProgress) {
+    /** Tesseract.js OCR: PDF 페이지를 고해상도(300DPI)로 렌더링 후 OCR */
+    const OCR_SCALE = 3.0;  // 72dpi * 3 ≈ 216dpi (OCR 최소 권장)
+    async function ocrPdfPages(pdfDoc, numPages, onProgress) {
       const worker = await Tesseract.createWorker('kor', 1, {
         logger: (m) => {
           if (m.status === 'recognizing text' && typeof m.progress === 'number') {
             if (typeof onProgress._currentPage === 'number') {
-              onProgress(onProgress._currentPage, canvases.length, m.progress);
+              onProgress(onProgress._currentPage, numPages, m.progress);
             }
           }
         }
       });
       const pageTexts = [];
-      for (let i = 0; i < canvases.length; i++) {
+      for (let i = 0; i < numPages; i++) {
         onProgress._currentPage = i;
-        onProgress(i, canvases.length, 0);
+        onProgress(i, numPages, 0);
         try {
-          const result = await worker.recognize(canvases[i]);
+          // OCR 전용 고해상도 캔버스 (화면에 표시하지 않음)
+          const page = await pdfDoc.getPage(i + 1);
+          const viewport = page.getViewport({ scale: OCR_SCALE });
+          const canvas = document.createElement('canvas');
+          canvas.width = viewport.width;
+          canvas.height = viewport.height;
+          const ctx = canvas.getContext('2d');
+          await page.render({ canvasContext: ctx, viewport: viewport }).promise;
+          const result = await worker.recognize(canvas);
           pageTexts.push(normalizeOcrText(result.data.text || ''));
+          // 메모리 해제
+          canvas.width = 0;
+          canvas.height = 0;
         } catch (err) {
           console.error(`OCR 페이지 ${i + 1} 실패:`, err);
           pageTexts.push('');
@@ -1198,15 +1210,12 @@
           const ocrBar = document.getElementById('ocr-progress-bar');
           ocrOverlay.style.display = 'flex';
           try {
-            const canvases = [];
-            pdfCanvasContainer.querySelectorAll('.pdf-page-wrap canvas:not(.highlight-layer)')
-              .forEach(c => canvases.push(c));
             const ocrProgress = function(pageIdx, total, workerProg) {
               const pct = ((pageIdx + workerProg) / total) * 100;
               ocrText.textContent = `OCR 처리 중... (${pageIdx + 1}/${total} 페이지)`;
               ocrBar.style.width = pct.toFixed(1) + '%';
             };
-            const ocrTexts = await ocrCanvasPages(canvases, ocrProgress);
+            const ocrTexts = await ocrPdfPages(pdf, numPages, ocrProgress);
             currentPageTexts = ocrTexts;
             currentFullText = ocrTexts.join('\n\n').trim();
             isOcrPdf = true;
