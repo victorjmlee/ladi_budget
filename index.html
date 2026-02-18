@@ -303,10 +303,15 @@
         if (!line.trim()) return '';
         let s = line;
         // 0. OCR 공통 오인식 보정 (줄 시작부: 예산 코드 영역)
-        //    으→20 (한글 '으' 모양이 '20'과 유사), ㅇ→0, ()→0
-        s = s.replace(/^(\s*)으(\d)/g, '$120$2');
+        //    으→0 (한글 '으' 모양이 '0'과 유사), ㅇ→0, ()→0, 이→01
+        //    주의: 으 뒤에 숫자가 바로 오면 으=0 (예: 으1→01, 으8→08)
+        s = s.replace(/^(\s*)으(\d)/g, '$10$2');
         s = s.replace(/^(\s*)\(?\)(\d)/g, '$10$2');
         s = s.replace(/^(\s*)ㅇ(\d)/g, '$10$2');
+        // "이" 뒤에 공백+한글이 오면 "01"로 변환 (예: "이 사무관리비" → "01 사무관리비")
+        s = s.replace(/^(\s*)이\s+([가-힣])/g, '$101 $2');
+        // "기" 뒤에 마침표+한글이면 "01"로 (예: "기.일반수용비" → "01.일반수용비")
+        s = s.replace(/^(\s*)기\.([가-힣])/g, '$101.$2');
         // 코드.한글 → 코드 한글 (마침표를 공백으로)
         s = s.replace(/^(\s*\d{2,3})\.([가-힣(])/g, '$1 $2');
         // 1. 한글 문자 사이 공백 제거
@@ -323,6 +328,41 @@
       }).join('\n');
     }
 
+    /** Otsu 이진화: 배경 노이즈 제거, 텍스트를 순수 흑백으로 변환 (OCR 정확도 향상) */
+    function binarizeCanvas(canvas) {
+      const ctx = canvas.getContext('2d');
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const data = imageData.data;
+      const len = canvas.width * canvas.height;
+      // 그레이스케일 변환
+      const gray = new Uint8Array(len);
+      for (let i = 0; i < len; i++) {
+        gray[i] = Math.round(0.299 * data[i*4] + 0.587 * data[i*4+1] + 0.114 * data[i*4+2]);
+      }
+      // Otsu 임계값 자동 계산
+      const hist = new Array(256).fill(0);
+      for (let i = 0; i < len; i++) hist[gray[i]]++;
+      let sum = 0;
+      for (let i = 0; i < 256; i++) sum += i * hist[i];
+      let sumB = 0, wB = 0, maxVar = 0, threshold = 128;
+      for (let i = 0; i < 256; i++) {
+        wB += hist[i];
+        if (wB === 0) continue;
+        const wF = len - wB;
+        if (wF === 0) break;
+        sumB += i * hist[i];
+        const diff = sumB / wB - (sum - sumB) / wF;
+        const variance = wB * wF * diff * diff;
+        if (variance > maxVar) { maxVar = variance; threshold = i; }
+      }
+      // 이진화 적용
+      for (let i = 0; i < len; i++) {
+        const val = gray[i] > threshold ? 255 : 0;
+        data[i*4] = val; data[i*4+1] = val; data[i*4+2] = val;
+      }
+      ctx.putImageData(imageData, 0, 0);
+    }
+
     /** 이미지 기반 PDF 감지: 페이지당 유의미 문자 평균 10자 미만이면 이미지 PDF */
     function isImageBasedPdf(pageTexts) {
       if (!pageTexts || pageTexts.length === 0) return false;
@@ -333,8 +373,8 @@
       return (totalChars / pageTexts.length) < 10;
     }
 
-    /** Tesseract.js OCR: PDF 페이지를 고해상도(300DPI)로 렌더링 후 OCR */
-    const OCR_SCALE = 3.0;  // 72dpi * 3 ≈ 216dpi (OCR 최소 권장)
+    /** Tesseract.js OCR: PDF 페이지를 고해상도로 렌더링 → 이진화 → OCR */
+    const OCR_SCALE = 4.5;  // 72dpi * 4.5 ≈ 324dpi (300dpi 이상 권장)
     async function ocrPdfPages(pdfDoc, numPages, onProgress) {
       const worker = await Tesseract.createWorker('kor', 1, {
         logger: (m) => {
@@ -345,8 +385,10 @@
           }
         }
       });
+      // 단어 간 공백 보존 (예산서 열 구분에 중요)
+      await worker.setParameters({ preserve_interword_spaces: '1' });
       const pageTexts = [];
-      const rawTexts = [];  // 디버그용 원본
+      const rawTexts = [];
       for (let i = 0; i < numPages; i++) {
         onProgress._currentPage = i;
         onProgress(i, numPages, 0);
@@ -358,6 +400,8 @@
           canvas.height = viewport.height;
           const ctx = canvas.getContext('2d');
           await page.render({ canvasContext: ctx, viewport: viewport }).promise;
+          // 이진화: 배경 노이즈 제거 → OCR 정확도 향상
+          binarizeCanvas(canvas);
           const result = await worker.recognize(canvas);
           const rawText = result.data.text || '';
           rawTexts.push(rawText);
